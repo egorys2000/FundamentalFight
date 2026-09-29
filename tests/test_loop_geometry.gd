@@ -43,6 +43,21 @@ func test_repeated_winding_is_detected_for_visual_lift() -> void:
 	]
 	assert(LoopGeometryClass.has_self_intersection(repeated_winding))
 
+func test_grid_route_avoids_obstacle_cells() -> void:
+	var state := WorldState.new()
+	state.occupied = {Vector2i(0, 0): WorldState.BREAKABLE_CRAG}
+	var route := LoopGeometryClass.grid_route(
+		Vector2i(-1, 0),
+		Vector2i(1, 0),
+		state,
+		Callable(self, "_cell_to_world"),
+		5
+	)
+	assert(not route.is_empty())
+	assert(route.size() > 3)
+	for point in route:
+		assert(point != Vector3.ZERO)
+
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
 	var segment := Vector2(end.x - start.x, end.z - start.z)
 	var length_squared := segment.length_squared()

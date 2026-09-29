@@ -601,12 +601,37 @@ func _append_draw_point(screen_position: Vector2) -> void:
 	if not _is_lasso_anchor_allowed(world_position):
 		status_label.text = "Lasso anchor is outside the level box"
 		return
-	world_position.y = LOOP_HEIGHT
-	if world_position.distance_to(draw_points.back()) < CELL_SIZE * 0.08:
+	var target_cell := Vector2i(roundi(world_position.x / CELL_SIZE), roundi(world_position.z / CELL_SIZE))
+	target_cell = _nearest_free_anchor(target_cell)
+	if target_cell == Vector2i(99999, 99999):
+		status_label.text = "No legal lasso path to that anchor"
 		return
-	draw_points.append(world_position)
+	var current_cell := Vector2i(roundi(draw_points.back().x / CELL_SIZE), roundi(draw_points.back().z / CELL_SIZE))
+	var route := LoopGeometry.grid_route(current_cell, target_cell, world_state, _cell_to_world, GRID_SIZE)
+	if route.is_empty():
+		status_label.text = "No legal lasso path to that anchor"
+		return
+	for route_point in route:
+		route_point.y = LOOP_HEIGHT
+		if route_point.distance_to(draw_points.back()) >= CELL_SIZE * 0.08:
+			draw_points.append(route_point)
 	loop_points = draw_points.duplicate()
 	_redraw_loop()
+
+func _nearest_free_anchor(target: Vector2i) -> Vector2i:
+	var limit := (GRID_SIZE - 1) / 2
+	var best := Vector2i(99999, 99999)
+	var best_distance := INF
+	for x in range(-limit, limit + 1):
+		for z in range(-limit, limit + 1):
+			var candidate := Vector2i(x, z)
+			if world_state.is_obstacle(candidate):
+				continue
+			var distance := target.distance_squared_to(candidate)
+			if distance < best_distance:
+				best = candidate
+				best_distance = distance
+	return best
 
 func _finish_loop_drawing() -> void:
 	if not drawing_loop:

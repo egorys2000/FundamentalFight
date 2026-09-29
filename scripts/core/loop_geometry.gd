@@ -38,6 +38,40 @@ static func encloses_puncture(loop: Array, state: WorldState, cell_to_world: Cal
 static func is_trivial(loop: Array, state: WorldState, cell_to_world: Callable) -> bool:
 	return not encloses_puncture(loop, state, cell_to_world)
 
+static func grid_route(start: Vector2i, target: Vector2i, state: WorldState, cell_to_world: Callable, grid_size: int) -> Array[Vector3]:
+	var limit := (grid_size - 1) / 2
+	if abs(start.x) > limit or abs(start.y) > limit or abs(target.x) > limit:
+		return []
+	if abs(target.y) > limit or state.is_obstacle(target):
+		return []
+	var frontier: Array[Vector2i] = [start]
+	var parent: Dictionary = {start: start}
+	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+	while not frontier.is_empty():
+		var current: Vector2i = frontier.pop_front()
+		if current == target:
+			break
+		for direction in directions:
+			var next := current + direction
+			if abs(next.x) > limit or abs(next.y) > limit:
+				continue
+			if state.is_obstacle(next) or parent.has(next):
+				continue
+			parent[next] = current
+			frontier.append(next)
+	if not parent.has(target):
+		return []
+	var cells: Array[Vector2i] = []
+	var cursor := target
+	while cursor != start:
+		cells.push_front(cursor)
+		cursor = parent[cursor]
+	cells.push_front(start)
+	var result: Array[Vector3] = []
+	for cell in cells:
+		result.append(cell_to_world.call(cell))
+	return result
+
 static func has_self_intersection(loop: Array) -> bool:
 	if loop.size() < 5:
 		return false
