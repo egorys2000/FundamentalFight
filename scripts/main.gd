@@ -322,26 +322,104 @@ func _pull_loop() -> void:
 	if loop_points.is_empty():
 		return
 	loop_pulled = true
-	var center := Vector3.ZERO
-	for cell in loop_caught_cells:
-		center += _cell_to_world(cell)
-	if loop_caught_cells.is_empty():
-		center = _cell_to_world(player_cell)
-	else:
-		center /= loop_caught_cells.size()
 	var start: Array = loop_points.duplicate()
-	var target: Array = []
-	for point in start:
-		var offset: Vector3 = point - center
-		target.append(center + Vector3(offset.x * 0.72, LOOP_HEIGHT, offset.z * 0.72))
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
-	if not target.is_empty():
-		target[0] = player_position
-		target[target.size() - 1] = player_position
+	var target := _build_convex_hull_loop(start.size(), player_position)
+	if target.size() != start.size():
+		loop_pulled = false
+		return
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_method(_tween_loop.bind(start, target), 0.0, 1.0, 0.65)
 	_update_status()
+
+func _build_convex_hull_loop(point_count: int, player_position: Vector3) -> Array:
+	var anchors: Array[Vector2] = [Vector2(player_position.x, player_position.z)]
+	for cell in occupied:
+		var obstacle := _cell_to_world(cell)
+		if _point_inside_loop(obstacle):
+			anchors.append(Vector2(obstacle.x, obstacle.z))
+	if anchors.size() < 2:
+		return []
+	if anchors.size() == 2:
+		var direction := anchors[1] - anchors[0]
+		var perpendicular := Vector2(-direction.y, direction.x).normalized() * CELL_SIZE
+		var midpoint := (anchors[0] + anchors[1]) * 0.5
+		anchors.append(midpoint + perpendicular)
+		anchors.append(midpoint - perpendicular)
+	var hull := _convex_hull(anchors)
+	if hull.size() < 2:
+		return []
+	var center := Vector2.ZERO
+	for point in hull:
+		center += point
+	center /= hull.size()
+	var expanded: Array[Vector2] = []
+	for point in hull:
+		var away := point - center
+		if away.length() > 0.01:
+			point += away.normalized() * (CELL_SIZE * 0.62)
+		expanded.append(point)
+	var player_index := _nearest_point_index(expanded, Vector2(player_position.x, player_position.z))
+	var ordered: Array[Vector2] = []
+	for i in range(expanded.size()):
+		ordered.append(expanded[(player_index + i) % expanded.size()])
+	var result: Array = []
+	for i in range(point_count - 1):
+		var perimeter_position := _sample_polygon(ordered, float(i) / float(point_count - 1))
+		result.append(Vector3(perimeter_position.x, LOOP_HEIGHT, perimeter_position.y))
+	result[0] = player_position
+	result.append(player_position)
+	return result
+
+func _convex_hull(points: Array[Vector2]) -> Array[Vector2]:
+	var sorted := points.duplicate()
+	sorted.sort_custom(func(a: Vector2, b: Vector2) -> bool:
+		if is_equal_approx(a.x, b.x):
+			return a.y < b.y
+		return a.x < b.x
+	)
+	var lower: Array[Vector2] = []
+	for point in sorted:
+		while lower.size() >= 2 and _cross(lower[-1] - lower[-2], point - lower[-1]) <= 0.0:
+			lower.pop_back()
+		lower.append(point)
+	var upper: Array[Vector2] = []
+	for index in range(sorted.size() - 1, -1, -1):
+		var point: Vector2 = sorted[index]
+		while upper.size() >= 2 and _cross(upper[-1] - upper[-2], point - upper[-1]) <= 0.0:
+			upper.pop_back()
+		upper.append(point)
+	lower.pop_back()
+	upper.pop_back()
+	lower.append_array(upper)
+	return lower
+
+func _cross(a: Vector2, b: Vector2) -> float:
+	return a.x * b.y - a.y * b.x
+
+func _nearest_point_index(points: Array[Vector2], target: Vector2) -> int:
+	var best_index := 0
+	var best_distance := INF
+	for i in range(points.size()):
+		var distance := points[i].distance_squared_to(target)
+		if distance < best_distance:
+			best_distance = distance
+			best_index = i
+	return best_index
+
+func _sample_polygon(polygon: Array[Vector2], normalized_distance: float) -> Vector2:
+	var perimeter := 0.0
+	for i in range(polygon.size()):
+		perimeter += polygon[i].distance_to(polygon[(i + 1) % polygon.size()])
+	var remaining := fmod(normalized_distance, 1.0) * perimeter
+	for i in range(polygon.size()):
+		var next: Vector2 = polygon[(i + 1) % polygon.size()]
+		var edge_length := polygon[i].distance_to(next)
+		if remaining <= edge_length:
+			return polygon[i].lerp(next, remaining / maxf(edge_length, 0.001))
+		remaining -= edge_length
+	return polygon[0]
 
 func _tween_loop(progress: float, start: Array, target: Array) -> void:
 	loop_points.clear()
