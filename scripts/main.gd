@@ -2,60 +2,48 @@ extends Node3D
 
 const GRID_SIZE := 11
 const CELL_SIZE := 1.6
-const PLAYER_HEIGHT := 0.8
+const GROUND_Y := -0.42
+const LOOP_HEIGHT := 0.16
+const LOOP_WIDTH := 0.09
+
+const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
+const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
+const CRAG_BREAKABLE := preload("res://assets/generated/crag_breakable.glb")
+const CRAG_UNBREAKABLE := preload("res://assets/generated/crag_unbreakable.glb")
+const CACTUS := preload("res://assets/generated/cactus.glb")
+const PLAYER_ASSET := preload("res://assets/generated/player_placeholder.glb")
 
 var player_cell := Vector2i(0, 0)
 var player: Node3D
 var camera: Camera3D
 var status_label: Label
+var loop_visual: Node3D
+var loop_material: StandardMaterial3D
+var loop_points: Array[Vector3] = []
+var loop_caught_cells: Array[Vector2i] = []
+var loop_pulled := false
 var occupied := {
-	Vector2i(-3, -2): "crag",
-	Vector2i(-1, 2): "crag",
-	Vector2i(2, -2): "crag",
-	Vector2i(3, 2): "crag",
-	Vector2i(-4, 2): "crag",
+	Vector2i(-3, -2): "crag_breakable",
+	Vector2i(-1, 2): "crag_unbreakable",
+	Vector2i(2, -2): "crag_breakable",
+	Vector2i(3, 2): "crag_unbreakable",
+	Vector2i(-4, 2): "crag_breakable",
 	Vector2i(2, 3): "cactus"
 }
-
-var ground_material := _material(Color("#30464d"), 0.0, 0.3)
-var grid_material := _material(Color("#82a5a5"), 0.0, 0.45)
-var crag_material := _material(Color("#718b8a"), 0.0, 0.8)
-var crag_dark_material := _material(Color("#40565b"), 0.0, 0.9)
-var cactus_material := _material(Color("#56a878"), 0.0, 0.6)
-var cactus_flower_material := _material(Color("#f2b86b"), 0.0, 0.45)
-var player_material := _material(Color("#e9b45c"), 0.0, 0.35)
 
 func _ready() -> void:
 	_build_environment()
 	_build_obstacles()
 	_build_player()
+	loop_visual = Node3D.new()
+	loop_visual.name = "PersistentLoop"
+	add_child(loop_visual)
+	loop_material = StandardMaterial3D.new()
+	loop_material.albedo_color = Color("#f0d47a")
+	loop_material.emission_enabled = true
+	loop_material.emission = Color("#a66b26")
+	loop_material.emission_energy_multiplier = 1.4
 	_build_ui()
-
-func _material(color: Color, metallic: float, roughness: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.metallic = metallic
-	material.roughness = roughness
-	return material
-
-func _box(size: Vector3, material: Material) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	var instance := MeshInstance3D.new()
-	instance.mesh = mesh
-	instance.material_override = material
-	return instance
-
-func _cylinder(radius: float, height: float, material: Material, sides := 8) -> MeshInstance3D:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius * 1.08
-	mesh.height = height
-	mesh.radial_segments = sides
-	var instance := MeshInstance3D.new()
-	instance.mesh = mesh
-	instance.material_override = material
-	return instance
 
 func _build_environment() -> void:
 	var world_environment := WorldEnvironment.new()
@@ -92,18 +80,14 @@ func _build_environment() -> void:
 	warm_rim.light_color = Color("#e88958")
 	add_child(warm_rim)
 
-	var ground := _box(Vector3(GRID_SIZE * CELL_SIZE, 0.35, GRID_SIZE * CELL_SIZE), ground_material)
-	ground.position.y = -0.2
-	add_child(ground)
-
-	for i in range(GRID_SIZE + 1):
-		var offset := -GRID_SIZE * CELL_SIZE * 0.5 + i * CELL_SIZE
-		var vertical := _box(Vector3(0.018, 0.018, GRID_SIZE * CELL_SIZE), grid_material)
-		vertical.position = Vector3(offset, 0.0, 0.0)
-		add_child(vertical)
-		var horizontal := _box(Vector3(GRID_SIZE * CELL_SIZE, 0.018, 0.018), grid_material)
-		horizontal.position = Vector3(0.0, 0.005, offset)
-		add_child(horizontal)
+	var limit := (GRID_SIZE - 1) / 2
+	for x in range(-limit, limit + 1):
+		for z in range(-limit, limit + 1):
+			var tile_scene: PackedScene = GROUND_TILE_GRASS if (x + z) % 3 == 0 else GROUND_TILE
+			var tile := tile_scene.instantiate() as Node3D
+			tile.position = _cell_to_world(Vector2i(x, z)) + Vector3(0.0, GROUND_Y, 0.0)
+			tile.scale = Vector3.ONE * CELL_SIZE / 2.0
+			add_child(tile)
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -118,40 +102,21 @@ func _build_environment() -> void:
 func _build_obstacles() -> void:
 	for cell in occupied:
 		var kind: String = occupied[cell]
-		var root := Node3D.new()
+		var asset: PackedScene = CRAG_BREAKABLE
+		if kind == "crag_unbreakable":
+			asset = CRAG_UNBREAKABLE
+		elif kind == "cactus":
+			asset = CACTUS
+		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
+		root.position.y = GROUND_Y
 		add_child(root)
-		if kind == "crag":
-			var base := _cylinder(0.5, 0.75, crag_dark_material)
-			base.position.y = 0.38
-			root.add_child(base)
-			var peak := _cylinder(0.34, 0.9, crag_material, 6)
-			peak.position.y = 1.0
-			peak.rotation_degrees = Vector3(0.0, 18.0, -7.0)
-			root.add_child(peak)
-		else:
-			var trunk := _cylinder(0.18, 1.25, cactus_material, 8)
-			trunk.position.y = 0.63
-			root.add_child(trunk)
-			var arm := _cylinder(0.12, 0.58, cactus_material, 8)
-			arm.position = Vector3(0.28, 0.75, 0.0)
-			arm.rotation_degrees.z = -90.0
-			root.add_child(arm)
-			var flower := _cylinder(0.16, 0.08, cactus_flower_material, 8)
-			flower.position = Vector3(0.0, 1.28, 0.0)
-			root.add_child(flower)
 
 func _build_player() -> void:
-	player = Node3D.new()
+	player = PLAYER_ASSET.instantiate() as Node3D
 	player.name = "Player"
-	player.position = _cell_to_world(player_cell)
+	player.position = _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0)
 	add_child(player)
-	var body := _cylinder(0.32, 0.75, player_material, 8)
-	body.position.y = 0.48
-	player.add_child(body)
-	var visor := _box(Vector3(0.42, 0.15, 0.08), cactus_flower_material)
-	visor.position = Vector3(0.0, 0.65, -0.29)
-	player.add_child(visor)
 
 func _build_ui() -> void:
 	var canvas := CanvasLayer.new()
@@ -170,7 +135,7 @@ func _build_ui() -> void:
 	var help := Label.new()
 	help.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	help.position = Vector2(30, -58)
-	help.text = "ARROW KEYS / WASD   Move one cell     R   Reset position"
+	help.text = "ARROWS / WASD Move     L Place loop     P Pull/tighten     X Remove loop     R Reset"
 	help.add_theme_font_size_override("font_size", 16)
 	help.add_theme_color_override("font_color", Color("#b9d4d2"))
 	canvas.add_child(help)
@@ -182,6 +147,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key_event := event as InputEventKey
 	if key_event != null and key_event.keycode == KEY_R:
 		_move_player(Vector2i.ZERO)
+		return
+	if key_event != null and key_event.keycode == KEY_L:
+		_place_loop()
+		return
+	if key_event != null and key_event.keycode == KEY_P:
+		_pull_loop()
+		return
+	if key_event != null and key_event.keycode == KEY_X:
+		_remove_loop()
 		return
 	var direction := Vector2i.ZERO
 	if event.is_action_pressed("ui_up") or (key_event != null and key_event.keycode == KEY_W):
@@ -205,12 +179,87 @@ func _move_player(target: Vector2i) -> void:
 	player_cell = target
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.tween_property(player, "position", _cell_to_world(player_cell), 0.16)
+	tween.tween_property(player, "position", _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0), 0.16)
 	_update_status()
 
 func _update_status() -> void:
 	if status_label:
-		status_label.text = "Player cell: (%d, %d)     Crags: 5     Cactus: 1     Stage: 0 / Empty map" % [player_cell.x, player_cell.y]
+		var loop_state := "none"
+		if not loop_points.is_empty():
+			loop_state = "tight" if loop_pulled else "placed"
+		status_label.text = "Player cell: (%d, %d)     Crags: 5     Cactus: 1     Loop: %s" % [player_cell.x, player_cell.y, loop_state]
 
 func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
+
+func _place_loop() -> void:
+	loop_pulled = false
+	loop_caught_cells = [Vector2i(-3, -2), Vector2i(2, -2)]
+	var left := _cell_to_world(loop_caught_cells[0])
+	var right := _cell_to_world(loop_caught_cells[1])
+	var padding := CELL_SIZE * 0.72
+	var min_x := left.x - padding
+	var max_x := right.x + padding
+	var min_z := min(left.z, right.z) - padding
+	var max_z := max(left.z, right.z) + padding
+	loop_points = [
+		Vector3(min_x, LOOP_HEIGHT, min_z),
+		Vector3(max_x, LOOP_HEIGHT, min_z),
+		Vector3(max_x, LOOP_HEIGHT, max_z),
+		Vector3(min_x, LOOP_HEIGHT, max_z),
+		Vector3(min_x, LOOP_HEIGHT, min_z)
+	]
+	_redraw_loop()
+	_update_status()
+
+func _pull_loop() -> void:
+	if loop_points.is_empty():
+		return
+	loop_pulled = true
+	var center := Vector3.ZERO
+	for cell in loop_caught_cells:
+		center += _cell_to_world(cell)
+	center /= loop_caught_cells.size()
+	var span := CELL_SIZE * 2.5
+	var target := [
+		center + Vector3(-span, LOOP_HEIGHT, -CELL_SIZE * 1.1),
+		center + Vector3(span, LOOP_HEIGHT, -CELL_SIZE * 1.1),
+		center + Vector3(span, LOOP_HEIGHT, CELL_SIZE * 1.1),
+		center + Vector3(-span, LOOP_HEIGHT, CELL_SIZE * 1.1),
+		center + Vector3(-span, LOOP_HEIGHT, -CELL_SIZE * 1.1)
+	]
+	var start := loop_points.duplicate()
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_method(_tween_loop.bind(start, target), 0.0, 1.0, 0.65)
+	_update_status()
+
+func _tween_loop(progress: float, start: Array, target: Array) -> void:
+	loop_points.clear()
+	for i in range(start.size()):
+		loop_points.append(start[i].lerp(target[i], progress))
+	_redraw_loop()
+
+func _remove_loop() -> void:
+	loop_points.clear()
+	loop_caught_cells.clear()
+	loop_pulled = false
+	_redraw_loop()
+	_update_status()
+
+func _redraw_loop() -> void:
+	for child in loop_visual.get_children():
+		child.queue_free()
+	if loop_points.size() < 2:
+		return
+	for i in range(loop_points.size() - 1):
+		var start: Vector3 = loop_points[i]
+		var end: Vector3 = loop_points[i + 1]
+		var segment_mesh := BoxMesh.new()
+		segment_mesh.size = Vector3(LOOP_WIDTH, LOOP_WIDTH, start.distance_to(end))
+		var segment := MeshInstance3D.new()
+		segment.mesh = segment_mesh
+		segment.material_override = loop_material
+		segment.position = (start + end) * 0.5
+		segment.look_at(end, Vector3.UP)
+		loop_visual.add_child(segment)
