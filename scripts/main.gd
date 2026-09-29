@@ -4,7 +4,9 @@ const GRID_SIZE := 11
 const CELL_SIZE := 1.6
 const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
-const LOOP_WIDTH := 0.09`nconst OBSTACLE_CLEARANCE := 0.92`nconst OBSTACLE_BOUNDARY_SAMPLES := 12
+const LOOP_WIDTH := 0.09
+const OBSTACLE_CLEARANCE := 0.92
+const OBSTACLE_BOUNDARY_SAMPLES := 12
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
