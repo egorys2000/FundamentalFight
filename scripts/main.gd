@@ -19,6 +19,8 @@ const LOOP_WIDTH := 0.09
 const OBSTACLE_CLEARANCE := 0.92
 const OBSTACLE_BOUNDARY_SAMPLES := 12
 const GRID_SNAP_DISTANCE := 0.42
+const PULL_ITERATIONS := 18
+const PULL_STEP := 0.12
 const WATER_Y := 0.22
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
@@ -498,7 +500,7 @@ func _pull_loop() -> void:
 	loop_pulled = true
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
-	var target := _build_convex_hull_loop(start.size(), player_position)
+	var target := _build_tightened_loop(start, player_position)
 	if target.size() != start.size():
 		loop_pulled = false
 		status_label.text = "Pull blocked: no canonical tightened loop"
@@ -516,43 +518,49 @@ func _pull_loop() -> void:
 	tween.tween_method(_tween_loop.bind(start, target), 0.0, 1.0, 0.65)
 	_update_status()
 
-func _build_convex_hull_loop(point_count: int, player_position: Vector3) -> Array:
-	var anchors: Array[Vector2] = [Vector2(player_position.x, player_position.z)]
+func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
+	if start.size() < 4:
+		return []
+	var current: Array[Vector3] = []
+	for point in start:
+		current.append(point)
+	current[0] = player_position
+	current[current.size() - 1] = player_position
+	var center := _loop_center(current)
+	for iteration in range(PULL_ITERATIONS):
+		var candidate: Array[Vector3] = []
+		for i in range(current.size()):
+			if i == 0 or i == current.size() - 1:
+				candidate.append(player_position)
+				continue
+			var inward := current[i].lerp(center, PULL_STEP)
+			candidate.append(_push_out_of_obstacles(inward))
+		if _loop_segments_clear(candidate):
+			current = candidate
+		else:
+			break
+		center = _loop_center(current)
+	return current if _loop_segments_clear(current) else []
+
+func _loop_center(points: Array) -> Vector3:
+	var center := Vector3.ZERO
+	var count := maxi(points.size() - 1, 1)
+	for i in range(count):
+		center += points[i]
+	return center / count
+
+func _push_out_of_obstacles(point: Vector3) -> Vector3:
+	var result := point
 	for cell in occupied:
 		var obstacle := _cell_to_world(cell)
-		if _point_inside_loop(obstacle):
-			var obstacle_center := Vector2(obstacle.x, obstacle.z)
-			for sample_index in range(OBSTACLE_BOUNDARY_SAMPLES):
-				var angle := TAU * float(sample_index) / float(OBSTACLE_BOUNDARY_SAMPLES)
-				anchors.append(obstacle_center + Vector2(cos(angle), sin(angle)) * OBSTACLE_CLEARANCE)
-	if anchors.size() < 2:
-		return []
-	var hull := _convex_hull(anchors)
-	if hull.size() < 2:
-		return []
-	var center := Vector2.ZERO
-	for point in hull:
-		center += point
-	center /= hull.size()
-	var expanded: Array[Vector2] = []
-	for point in hull:
-		var away := point - center
-		if away.length() > 0.01:
-			point += away.normalized() * (CELL_SIZE * 0.62)
-		expanded.append(point)
-	var player_index := _nearest_point_index(expanded, Vector2(player_position.x, player_position.z))
-	var ordered: Array[Vector2] = []
-	for i in range(expanded.size()):
-		ordered.append(expanded[(player_index + i) % expanded.size()])
-	var result: Array = []
-	for i in range(point_count - 1):
-		var perimeter_position := _sample_polygon(ordered, float(i) / float(point_count - 1))
-		var target_position := Vector3(perimeter_position.x, LOOP_HEIGHT, perimeter_position.y)
-		if enable_grid_snap:
-			target_position = _snap_loop_point(target_position)
-		result.append(target_position)
-	result[0] = player_position
-	result.append(player_position)
+		var offset := Vector2(result.x - obstacle.x, result.z - obstacle.z)
+		var minimum_distance := OBSTACLE_CLEARANCE
+		if offset.length() < minimum_distance:
+			var direction := offset.normalized()
+			if direction.length_squared() < 0.01:
+				direction = Vector2.RIGHT
+			result.x = obstacle.x + direction.x * minimum_distance
+			result.z = obstacle.z + direction.y * minimum_distance
 	return result
 
 func _loop_segments_clear(points: Array) -> bool:
