@@ -77,6 +77,7 @@ func _ready() -> void:
 	loop_material.emission_enabled = true
 	loop_material.emission = Color("#a66b26")
 	loop_material.emission_energy_multiplier = 0.55
+	loop_material.roughness = 0.42
 	_build_ui()
 
 func _process(delta: float) -> void:
@@ -586,19 +587,52 @@ func _remove_loop() -> void:
 func _redraw_loop() -> void:
 	for child in loop_visual.get_children():
 		child.queue_free()
-	if loop_points.size() < 2:
+	if loop_points.size() < 3 or loop_points[0].distance_to(loop_points[loop_points.size() - 1]) > 0.01:
 		return
-	for i in range(loop_points.size() - 1):
-		var start: Vector3 = loop_points[i]
-		var end: Vector3 = loop_points[i + 1]
-		var segment_mesh := BoxMesh.new()
-		segment_mesh.size = Vector3(LOOP_WIDTH, LOOP_WIDTH, start.distance_to(end))
-		var segment := MeshInstance3D.new()
-		segment.mesh = segment_mesh
-		segment.material_override = loop_material
-		var energy_ratio := clampf(strain_energy / maxf(strain_peak_energy, 0.001), 0.0, 1.0)
-		segment.scale.y = 1.0 + energy_ratio * 0.35
-		segment.scale.x = 1.0 + energy_ratio * 0.35
-		segment.position = (start + end) * 0.5
-		segment.look_at(end, Vector3.UP)
-		loop_visual.add_child(segment)
+	var rope := MeshInstance3D.new()
+	rope.name = "RopeMesh"
+	rope.mesh = _build_rope_mesh()
+	rope.material_override = loop_material
+	loop_visual.add_child(rope)
+
+func _build_rope_mesh() -> ArrayMesh:
+	var sides := 8
+	var rings := loop_points.size() - 1
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var energy_ratio := clampf(strain_energy / maxf(strain_peak_energy, 0.001), 0.0, 1.0)
+	var radius := LOOP_WIDTH * (1.0 + energy_ratio * 0.35)
+	for ring_index in range(rings):
+		var point: Vector3 = loop_points[ring_index]
+		var previous: Vector3 = loop_points[(ring_index - 1 + rings) % rings]
+		var next: Vector3 = loop_points[(ring_index + 1) % rings]
+		var tangent := Vector2(next.x - previous.x, next.z - previous.z).normalized()
+		if tangent.length_squared() < 0.01:
+			tangent = Vector2.RIGHT
+		var side := Vector3(-tangent.y, 0.0, tangent.x)
+		for side_index in range(sides):
+			var angle := TAU * float(side_index) / float(sides)
+			var radial := side * cos(angle) + Vector3.UP * sin(angle)
+			vertices.append(point + radial * radius)
+			normals.append(radial)
+			uvs.append(Vector2(float(ring_index) / float(rings), float(side_index) / float(sides)))
+	for ring_index in range(rings):
+		var next_ring := (ring_index + 1) % rings
+		for side_index in range(sides):
+			var next_side := (side_index + 1) % sides
+			var a := ring_index * sides + side_index
+			var b := next_ring * sides + side_index
+			var c := next_ring * sides + next_side
+			var d := ring_index * sides + next_side
+			indices.append_array([a, b, c, a, c, d])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
