@@ -1,12 +1,25 @@
 extends Node3D
 
-const GRID_SIZE := 11
-const CELL_SIZE := 1.6
+@export_category("Core Mechanics")
+@export var enable_manual_movement := true
+@export var enable_lasso_drawing := true
+@export var enable_grid_snap := true
+@export var enable_loop_persistence := true
+@export var enable_obstacle_clearance := true
+@export var enable_pull_tightening := true
+@export var enable_string_recovery := true
+@export var enable_cactus_cutting := true
+@export_range(1, 8, 1) var max_strings_per_player := 3
+
+const GRID_SIZE := 15
+const CELL_SIZE := 2.35
 const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
 const LOOP_WIDTH := 0.09
 const OBSTACLE_CLEARANCE := 0.92
 const OBSTACLE_BOUNDARY_SAMPLES := 12
+const GRID_SNAP_DISTANCE := 0.42
+const WATER_Y := 0.22
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -24,19 +37,31 @@ var loop_material: StandardMaterial3D
 var loop_points: Array[Vector3] = []
 var loop_caught_cells: Array[Vector2i] = []
 var loop_pulled := false
+var scene_built := false
 var drawing_loop := false
 var draw_points: Array[Vector3] = []
+var water_cells := [
+	Vector2i(-3, 1),
+	Vector2i(-2, 1),
+	Vector2i(2, -1),
+	Vector2i(2, 0),
+	Vector2i(-1, -3),
+]
 var occupied := {
 	Vector2i(-3, -2): "crag_breakable",
-	Vector2i(-1, 2): "crag_unbreakable",
-	Vector2i(2, -2): "crag_breakable",
-	Vector2i(3, 2): "crag_unbreakable",
-	Vector2i(-4, 2): "crag_breakable",
-	Vector2i(2, 3): "cactus"
+	Vector2i(0, 2): "crag_unbreakable",
+	Vector2i(3, -2): "crag_breakable",
+	Vector2i(-2, 2): "crag_unbreakable",
+	Vector2i(2, 2): "crag_breakable",
+	Vector2i(3, 0): "cactus"
 }
 
 func _ready() -> void:
+	if scene_built:
+		return
+	scene_built = true
 	_build_environment()
+	_build_water()
 	_build_obstacles()
 	_build_player()
 	loop_visual = Node3D.new()
@@ -63,6 +88,13 @@ func _build_environment() -> void:
 	environment.adjustment_brightness = 0.82
 	environment.adjustment_contrast = 1.12
 	environment.adjustment_saturation = 0.9
+	environment.fog_enabled = true
+	environment.fog_light_color = Color("#365d63")
+	environment.fog_light_energy = 0.18
+	environment.fog_density = 0.006
+	environment.fog_height = 1.2
+	environment.fog_height_density = 0.16
+	environment.fog_sky_affect = 0.35
 	world_environment.environment = environment
 	add_child(world_environment)
 
@@ -85,6 +117,30 @@ func _build_environment() -> void:
 	warm_rim.light_energy = 0.65
 	warm_rim.light_color = Color("#bd654d")
 	add_child(warm_rim)
+	var water_light := OmniLight3D.new()
+	water_light.position = Vector3(-4.0, 2.4, 4.0)
+	water_light.omni_range = 12.0
+	water_light.light_energy = 1.15
+	water_light.light_color = Color("#3bc5bd")
+	add_child(water_light)
+	var terrarium_light := OmniLight3D.new()
+	terrarium_light.position = Vector3(5.0, 3.0, -5.0)
+	terrarium_light.omni_range = 14.0
+	terrarium_light.light_energy = 0.85
+	terrarium_light.light_color = Color("#d18a58")
+	add_child(terrarium_light)
+
+	var foundation_material := StandardMaterial3D.new()
+	foundation_material.albedo_color = Color("#182b2c")
+	foundation_material.roughness = 0.92
+	var foundation_mesh := BoxMesh.new()
+	foundation_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 0.8, 0.3, GRID_SIZE * CELL_SIZE + 0.8)
+	var foundation := MeshInstance3D.new()
+	foundation.mesh = foundation_mesh
+	foundation.material_override = foundation_material
+	foundation.position.y = GROUND_Y - 0.28
+	add_child(foundation)
+	_build_terrarium_frame()
 
 	var limit := (GRID_SIZE - 1) / 2
 	for x in range(-limit, limit + 1):
@@ -92,18 +148,96 @@ func _build_environment() -> void:
 			var tile_scene: PackedScene = GROUND_TILE_GRASS if (x + z) % 3 == 0 else GROUND_TILE
 			var tile := tile_scene.instantiate() as Node3D
 			tile.position = _cell_to_world(Vector2i(x, z)) + Vector3(0.0, GROUND_Y, 0.0)
-			tile.scale = Vector3.ONE * CELL_SIZE / 2.0
+			tile.scale = Vector3.ONE * (CELL_SIZE / 2.0) * 0.91
 			add_child(tile)
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 14.2
+	camera.size = 29.5
 	camera.near = 0.01
 	camera.far = 100.0
-	camera.position = Vector3(0.0, 18.5, 16.5)
+	camera.position = Vector3(14.0, 22.0, -18.0)
 	add_child(camera)
-	camera.rotation_degrees = Vector3(-48.0, 0.0, 0.0)
+	camera.look_at(Vector3(0.0, 0.0, 0.0), Vector3.UP)
 	camera.current = true
+
+func _build_terrarium_frame() -> void:
+	var frame_material := StandardMaterial3D.new()
+	frame_material.albedo_color = Color("#10252b")
+	frame_material.metallic = 0.35
+	frame_material.roughness = 0.3
+	var glass_material := StandardMaterial3D.new()
+	glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_material.albedo_color = Color(0.18, 0.62, 0.65, 0.055)
+	glass_material.metallic = 0.1
+	glass_material.roughness = 0.08
+	glass_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var extent := GRID_SIZE * CELL_SIZE * 0.5 + 0.35
+	var wall_height := 3.8
+	var walls := [
+		{"position": Vector3(0.0, wall_height * 0.5, -extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
+		{"position": Vector3(0.0, wall_height * 0.5, extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
+		{"position": Vector3(-extent, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent * 2.0)},
+		{"position": Vector3(extent, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent * 2.0)},
+	]
+	for wall in walls:
+		var glass_mesh := BoxMesh.new()
+		glass_mesh.size = wall["size"]
+		var glass := MeshInstance3D.new()
+		glass.mesh = glass_mesh
+		glass.material_override = glass_material
+		glass.position = wall["position"]
+		add_child(glass)
+	for corner in [
+		Vector3(-extent, wall_height * 0.5, -extent),
+		Vector3(extent, wall_height * 0.5, -extent),
+		Vector3(-extent, wall_height * 0.5, extent),
+		Vector3(extent, wall_height * 0.5, extent),
+	]:
+		var post_mesh := BoxMesh.new()
+		post_mesh.size = Vector3(0.16, wall_height, 0.16)
+		var post := MeshInstance3D.new()
+		post.mesh = post_mesh
+		post.material_override = frame_material
+		post.position = corner
+		add_child(post)
+	var cap_mesh := BoxMesh.new()
+	cap_mesh.size = Vector3(extent * 2.0 + 0.3, 0.12, 0.12)
+	for z in [-extent, extent]:
+		var cap := MeshInstance3D.new()
+		cap.mesh = cap_mesh
+		cap.material_override = frame_material
+		cap.position = Vector3(0.0, wall_height, z)
+		add_child(cap)
+
+func _build_water() -> void:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode blend_mix, depth_prepass_alpha, cull_disabled, diffuse_burley, specular_schlick_ggx;
+uniform vec4 water_color : source_color = vec4(0.08, 0.52, 0.56, 0.78);
+void vertex() {
+	VERTEX.y += sin(TIME * 1.4 + VERTEX.x * 2.2 + VERTEX.z * 1.7) * 0.018;
+}
+void fragment() {
+	float ripple = sin(TIME * 1.2 + UV.x * 18.0 + UV.y * 13.0) * 0.035;
+	ALBEDO = water_color.rgb + ripple;
+	METALLIC = 0.18;
+	ROUGHNESS = 0.16;
+	EMISSION = water_color.rgb * 0.12;
+	ALPHA = water_color.a;
+}
+"""
+	var water_material := ShaderMaterial.new()
+	water_material.shader = shader
+	for cell in water_cells:
+		var water_mesh := BoxMesh.new()
+		water_mesh.size = Vector3(CELL_SIZE * 0.88, 0.06, CELL_SIZE * 0.88)
+		var water := MeshInstance3D.new()
+		water.mesh = water_mesh
+		water.material_override = water_material
+		water.position = _cell_to_world(cell) + Vector3(0.0, WATER_Y, 0.0)
+		add_child(water)
 
 func _build_obstacles() -> void:
 	for cell in occupied:
@@ -116,12 +250,14 @@ func _build_obstacles() -> void:
 		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
 		root.position.y = GROUND_Y
+		root.scale = Vector3.ONE * (0.62 if kind.begins_with("crag") else 0.72)
 		add_child(root)
 
 func _build_player() -> void:
 	player = PLAYER_ASSET.instantiate() as Node3D
 	player.name = "Player"
 	player.position = _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0)
+	player.scale = Vector3.ONE * 0.76
 	add_child(player)
 
 func _build_ui() -> void:
@@ -195,9 +331,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mouse_button := event as InputEventMouseButton
 		if mouse_button.button_index == MOUSE_BUTTON_LEFT:
 			if mouse_button.pressed:
-				_begin_loop_drawing(mouse_button.position)
+				if enable_lasso_drawing:
+					_begin_loop_drawing(mouse_button.position)
 			else:
-				_finish_loop_drawing()
+				if enable_lasso_drawing:
+					_finish_loop_drawing()
 			return
 	if event is InputEventMouseMotion and drawing_loop:
 		var mouse_motion := event as InputEventMouseMotion
@@ -210,10 +348,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move_player(Vector2i.ZERO)
 		return
 	if key_event != null and key_event.keycode == KEY_P:
-		_pull_loop()
+		if enable_pull_tightening:
+			_pull_loop()
 		return
 	if key_event != null and key_event.keycode == KEY_X:
-		_remove_loop()
+		if enable_string_recovery:
+			_remove_loop()
 		return
 	var direction := Vector2i.ZERO
 	if event.is_action_pressed("ui_up") or (key_event != null and key_event.keycode == KEY_W):
@@ -225,7 +365,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_right") or (key_event != null and key_event.keycode == KEY_D):
 		direction = Vector2i(1, 0)
 	if direction != Vector2i.ZERO:
-		_move_player(player_cell + direction)
+		if enable_manual_movement:
+			_move_player(player_cell + direction)
 
 func _move_player(target: Vector2i) -> void:
 	var limit := (GRID_SIZE - 1) / 2
@@ -251,6 +392,12 @@ func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
 
 func _begin_loop_drawing(screen_position: Vector2) -> void:
+	if enable_loop_persistence and not loop_points.is_empty():
+		status_label.text = "A persistent loop is already deployed; press X to recover it"
+		return
+	if max_strings_per_player < 1:
+		status_label.text = "No string slots available"
+		return
 	var world_position := _screen_to_ground(screen_position)
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	if world_position == Vector3.INF or world_position.distance_to(player_position) > CELL_SIZE * 1.25:
@@ -266,6 +413,8 @@ func _append_draw_point(screen_position: Vector2) -> void:
 	var world_position := _screen_to_ground(screen_position)
 	if world_position == Vector3.INF or draw_points.is_empty():
 		return
+	if enable_grid_snap:
+		world_position = _snap_loop_point(world_position)
 	world_position.y = LOOP_HEIGHT
 	if world_position.distance_to(draw_points.back()) < CELL_SIZE * 0.08:
 		return
@@ -285,12 +434,14 @@ func _finish_loop_drawing() -> void:
 		return
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	draw_points.append(player_position)
-	loop_points = draw_points.duplicate()
+	loop_points = _simplify_loop_path(draw_points)
 	draw_points.clear()
 	loop_caught_cells = _cells_inside_loop()
 	loop_pulled = false
 	_redraw_loop()
 	_update_status()
+	if not enable_loop_persistence:
+		status_label.text = "Loop preview placed (persistence disabled)"
 
 func _screen_to_ground(screen_position: Vector2) -> Vector3:
 	var ray_origin := camera.project_ray_origin(screen_position)
@@ -301,6 +452,27 @@ func _screen_to_ground(screen_position: Vector2) -> Vector3:
 	if distance < 0.0:
 		return Vector3.INF
 	return ray_origin + ray_direction * distance
+
+func _snap_loop_point(point: Vector3) -> Vector3:
+	var grid_x := snappedf(point.x / CELL_SIZE, 1.0) * CELL_SIZE
+	var grid_z := snappedf(point.z / CELL_SIZE, 1.0) * CELL_SIZE
+	var snap_x: bool = absf(point.x - grid_x) <= GRID_SNAP_DISTANCE
+	var snap_z: bool = absf(point.z - grid_z) <= GRID_SNAP_DISTANCE
+	if snap_x:
+		point.x = grid_x
+	if snap_z:
+		point.z = grid_z
+	return point
+
+func _simplify_loop_path(points: Array[Vector3]) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for point in points:
+		if result.is_empty() or point.distance_to(result.back()) >= CELL_SIZE * 0.12:
+			result.append(point)
+	if result.size() >= 2:
+		result[0] = points[0]
+		result[result.size() - 1] = points[points.size() - 1]
+	return result
 
 func _cells_inside_loop() -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
@@ -327,9 +499,17 @@ func _pull_loop() -> void:
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	var target := _build_convex_hull_loop(start.size(), player_position)
-	if target.size() != start.size() or not _loop_segments_clear(target):
+	if target.size() != start.size():
+		loop_pulled = false
+		status_label.text = "Pull blocked: no canonical tightened loop"
+		return
+	if enable_obstacle_clearance and not _loop_segments_clear(target):
 		loop_pulled = false
 		status_label.text = "Pull blocked: the tightened loop would cross an obstacle"
+		return
+	if enable_cactus_cutting and _loop_touches_cactus(target):
+		_remove_loop()
+		status_label.text = "Cactus cut the loop during tightening"
 		return
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
@@ -367,7 +547,10 @@ func _build_convex_hull_loop(point_count: int, player_position: Vector3) -> Arra
 	var result: Array = []
 	for i in range(point_count - 1):
 		var perimeter_position := _sample_polygon(ordered, float(i) / float(point_count - 1))
-		result.append(Vector3(perimeter_position.x, LOOP_HEIGHT, perimeter_position.y))
+		var target_position := Vector3(perimeter_position.x, LOOP_HEIGHT, perimeter_position.y)
+		if enable_grid_snap:
+			target_position = _snap_loop_point(target_position)
+		result.append(target_position)
 	result[0] = player_position
 	result.append(player_position)
 	return result
@@ -383,6 +566,16 @@ func _loop_segments_clear(points: Array) -> bool:
 			if _segment_hits_obstacle(start, end, obstacle):
 				return false
 	return true
+
+func _loop_touches_cactus(points: Array) -> bool:
+	for cell in occupied:
+		if occupied[cell] != "cactus":
+			continue
+		var cactus := _cell_to_world(cell)
+		for i in range(points.size() - 1):
+			if _segment_hits_obstacle(points[i], points[i + 1], cactus):
+				return true
+	return false
 
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
 	var segment := Vector2(end.x - start.x, end.z - start.z)
@@ -453,7 +646,7 @@ func _tween_loop(progress: float, start: Array, target: Array) -> void:
 		var start_point: Vector3 = start[i]
 		var target_point: Vector3 = target[i]
 		candidate.append(start_point.lerp(target_point, progress))
-	if _loop_segments_clear(candidate):
+	if not enable_obstacle_clearance or _loop_segments_clear(candidate):
 		loop_points = candidate
 		_redraw_loop()
 
