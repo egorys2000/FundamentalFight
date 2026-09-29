@@ -3,16 +3,21 @@ extends RefCounted
 
 const BREAKABLE_CRAG := "crag_breakable"
 const UNBREAKABLE_CRAG := "crag_unbreakable"
+const BREAKABLE_SPIRE := "crag_breakable_spire"
+const UNBREAKABLE_SPIRE := "crag_unbreakable_spire"
 const CACTUS := "cactus"
+const CACTUS_TWIN := "cactus_twin"
+const CACTUS_LOW := "cactus_low"
 
 var player_cell := Vector2i.ZERO
 var occupied := {
-	Vector2i(-3, -2): BREAKABLE_CRAG,
+	Vector2i(-3, -2): BREAKABLE_SPIRE,
 	Vector2i(0, 2): UNBREAKABLE_CRAG,
 	Vector2i(3, -2): BREAKABLE_CRAG,
-	Vector2i(-2, 2): UNBREAKABLE_CRAG,
+	Vector2i(-2, 2): UNBREAKABLE_SPIRE,
 	Vector2i(2, 2): BREAKABLE_CRAG,
-	Vector2i(3, 0): CACTUS
+	Vector2i(3, 0): CACTUS_TWIN,
+	Vector2i(-3, 0): CACTUS_LOW
 }
 
 var water_cells := [
@@ -30,7 +35,7 @@ func is_crag(cell: Vector2i) -> bool:
 	return occupied.get(cell, "").begins_with("crag")
 
 func is_cactus(cell: Vector2i) -> bool:
-	return occupied.get(cell, "") == CACTUS
+	return occupied.get(cell, "").begins_with("cactus")
 
 func crag_count() -> int:
 	var count := 0

@@ -25,7 +25,6 @@ RESOLUTION_SCALE = int(round(AUTHORED_CELL / VOXEL_SIZE))
 COLORS = {
     "ground": (0.16, 0.25, 0.28, 1.0),
     "ground_edge": (0.30, 0.45, 0.46, 1.0),
-    "grass": (0.25, 0.48, 0.34, 1.0),
     "breakable": (0.34, 0.46, 0.47, 1.0),
     "breakable_dark": (0.20, 0.29, 0.32, 1.0),
     "unbreakable": (0.24, 0.20, 0.31, 1.0),
@@ -75,6 +74,13 @@ class VoxelModel:
                     self.set(x, y, z, material)
         return self
 
+    def fine_box(self, x0, y0, z0, width, height, depth, material):
+        for x in range(x0, x0 + width):
+            for y in range(y0, y0 + height):
+                for z in range(z0, z0 + depth):
+                    self.set(x, y, z, material)
+        return self
+
     def validate(self):
         if not self.cells:
             raise ValueError("%s has no occupied cells" % self.name)
@@ -85,9 +91,12 @@ class VoxelModel:
                 raise ValueError("%s contains an unpainted cell at %s" % (self.name, coordinate))
         unseen = set(self.cells)
         components = 0
+        component_bounds = []
         while unseen:
             components += 1
-            stack = [unseen.pop()]
+            first = unseen.pop()
+            stack = [first]
+            members = [first]
             while stack:
                 x, y, z = stack.pop()
                 for neighbor in (
@@ -98,8 +107,14 @@ class VoxelModel:
                     if neighbor in unseen:
                         unseen.remove(neighbor)
                         stack.append(neighbor)
+                        members.append(neighbor)
+            component_bounds.append((
+                min(item[0] for item in members), max(item[0] for item in members),
+                min(item[1] for item in members), max(item[1] for item in members),
+                min(item[2] for item in members), max(item[2] for item in members),
+            ))
         if components > 1:
-            raise ValueError("%s has %d disconnected voxel islands" % (self.name, components))
+            raise ValueError("%s has %d disconnected voxel islands: %s" % (self.name, components, component_bounds))
         palette = set(self.cells.values())
         if len(palette) > 6:
             raise ValueError("%s uses %d materials; keep the asset palette intentional" % (self.name, len(palette)))
@@ -185,77 +200,122 @@ def export_asset(filename, root):
     print("Generated", os.path.join(OUTPUT, filename))
 
 
-def make_ground(name, ground, edge, grass=None):
+def make_ground(name, ground, edge):
     model = VoxelModel(name)
     model.box(-4, 0, -4, 8, 1, 8, edge)
     model.box(-3, 1, -3, 6, 1, 6, ground)
-    if grass:
-        for x, z in [(-2, -1), (1, 2), (2, -2), (-1, 2)]:
-            model.box(x, 2, z, 1, 1, 1, grass)
     return model.create()
 
 
-def make_crag(name, stone, shadow, highlight, unbreakable=False):
+def make_crag(name, stone, shadow, highlight, unbreakable=False, variant=0):
     model = VoxelModel(name)
-    # Monumental anchors: the playable loop should read as permanently
-    # committed around a landmark, not like a small pebble.
-    # A mountain is designed as changing horizontal strata, not stacked cubes.
-    # Each layer has a different footprint and offset, producing ridges,
-    # shelves, gullies, and a readable taper at the finer voxel resolution.
-    for y in range(0, 68):
-        t = y / 67.0
-        radius_x = max(3, int(round(24.0 * (1.0 - t ** 0.72))))
-        radius_z = max(3, int(round(20.0 * (1.0 - t ** 0.82))))
-        offset_x = int(round(math.sin(y * 0.37) * max(0, radius_x - 4)))
-        offset_z = int(round(math.cos(y * 0.23) * max(0, radius_z - 4)))
-        layer_material = shadow if y < 8 else stone
-        for x in range(-radius_x + offset_x, radius_x + offset_x + 1):
-            for z in range(-radius_z + offset_z, radius_z + offset_z + 1):
-                edge = abs(x - offset_x) / max(1, radius_x) + abs(z - offset_z) / max(1, radius_z)
-                if edge < 1.45 or (y < 16 and edge < 1.8):
-                    mat = layer_material
-                    if y in (8, 18, 30, 43, 55) and edge > 1.1:
-                        mat = highlight
-                    model.set(x, y, z, mat)
-    # A continuous inner spine makes every terrace a believable part of one
-    # mountain even when the outer contour steps inward sharply.
-    model.box(-4, 0, -4, 8, 34, 8, shadow)
-    # Recesses are represented by material bands and offset terraces rather
-    # than carving through the load-bearing core; the mountain stays one mass.
+    # Primary form: a broad, asymmetric mountain mass with a heavy base and
+    # a deliberate split summit. Layer widths change in long geological
+    # rhythms rather than repeating identical centered boxes.
+    strata = [
+        (0, 8, 25, 21, -2, 1),
+        (8, 15, 23, 19, -1, 1),
+        (15, 23, 20, 17, 1, 0),
+        (23, 31, 17, 15, 2, -1),
+        (31, 40, 14, 13, 3, -1),
+        (40, 49, 11, 11, 2, 0),
+        (49, 57, 8, 9, 0, 1),
+        (57, 64, 6, 7, -2, 1),
+        (64, 69, 4, 5, -3, 0),
+    ]
+    if variant == 1:
+        strata = [(y, h, max(3, rx + 2), max(3, rz - 2), ox + (y // 10), oz) for y, h, rx, rz, ox, oz in strata]
+    for index, band in enumerate(strata):
+        y0, y1, rx, rz, ox, oz = band
+        for y in range(y0, y1):
+            inset = max(0, (y - y0) // 3)
+            local_rx = max(3, rx - inset)
+            local_rz = max(3, rz - inset)
+            for x in range(ox - local_rx, ox + local_rx + 1):
+                for z in range(oz - local_rz, oz + local_rz + 1):
+                    contour = (abs(x - ox) / local_rx) ** 1.7 + (abs(z - oz) / local_rz) ** 1.7
+                    if contour <= 1.0:
+                        mat = shadow if index == 0 and y < 3 else stone
+                        if y == y0 and index > 0 and contour > 0.72:
+                            mat = highlight
+                        model.set(x, y, z, mat)
+    # Secondary forms: structural buttresses explain the mountain's mass and
+    # create strong foreground silhouette events.
+    model.fine_box(-22, 5, -4, 7, 25, 7, shadow)
+    model.fine_box(15, 8, 5, 6, 21, 6, shadow)
+    if variant == 1:
+        model.fine_box(-14, 15, 8, 5, 26, 5, stone)
+        model.fine_box(9, 28, -10, 5, 23, 5, stone)
+    else:
+        model.fine_box(-11, 18, 10, 5, 19, 5, stone)
+        model.fine_box(7, 34, -8, 5, 17, 5, stone)
+    # A stepped summit ridge and a narrow saddle make the peak feel geological
+    # instead of like a tower assembled from equal cubes.
+    model.fine_box(-7, 63, -3, 13, 3, 7, highlight)
+    model.fine_box(-4, 66, -2, 8, 3, 5, stone)
+    model.fine_box(0, 69, -1, 4, 2, 3, highlight)
+    # Tertiary focal detail: two dark fissure mouths and sparse strata chips.
+    model.fine_box(-2, 25, -10, 4, 8, 2, shadow)
+    model.fine_box(6, 42, 6, 3, 7, 2, shadow)
+    for x, y, z in [(-8, 13, -4), (8, 25, 2), (-4, 40, 3), (3, 53, -2), (-2, 60, 2)]:
+        model.fine_box(x, y, z, 3, 2, 2, highlight)
     if unbreakable:
-        for y in range(18, 58):
-            x = -3 if y < 36 else 2
-            model.set(x, y, 0, highlight)
+        # The luminous seam is embedded in the mass, not pasted on its surface.
+        for y in range(17, 61):
+            x = -5 if y < 39 else 3
+            model.fine_box(x, y, 0, 2, 2, 2, highlight)
     return model.create()
 
 
-def make_cactus(cactus, light, flower):
-    model = VoxelModel("Cactus")
+def make_cactus(cactus, light, flower, variant=0):
+    model = VoxelModel("CactusVariant%d" % variant)
     model.box(-1, 0, -1, 3, 1, 3, cactus)
-    model.box(-1, 1, -1, 3, 6, 3, cactus)
-    model.box(-4, 3, -1, 3, 2, 3, light)
-    model.box(-4, 4, -1, 2, 3, 3, cactus)
-    model.box(2, 5, -1, 3, 2, 3, light)
-    model.box(4, 5, -1, 2, 3, 3, cactus)
-    model.box(-1, 7, -1, 3, 1, 3, flower)
+    trunk_height = 7 if variant != 2 else 5
+    model.box(-1, 1, -1, 3, trunk_height, 3, cactus)
+    if variant == 0:
+        model.box(-4, 3, -1, 3, 2, 3, light)
+        model.box(-4, 4, -1, 2, 3, 3, cactus)
+        model.box(2, 5, -1, 3, 2, 3, light)
+        model.box(4, 5, -1, 2, 3, 3, cactus)
+    elif variant == 1:
+        model.box(-4, 2, -1, 3, 2, 3, light)
+        model.box(-4, 2, -1, 2, 4, 3, cactus)
+        model.box(2, 4, -1, 3, 2, 3, light)
+        model.box(4, 4, -1, 2, 4, 3, cactus)
+        model.box(1, 7, -1, 2, 2, 3, light)
+    else:
+        model.box(-4, 2, -1, 3, 2, 3, light)
+        model.box(-4, 2, -1, 2, 3, 3, cactus)
+        model.box(2, 3, -1, 3, 2, 3, light)
+        model.box(4, 3, -1, 2, 3, 3, cactus)
+    model.box(-1, trunk_height + 1, -1, 3, 1, 3, flower)
     return model.create()
 
 
 def make_player(player, visor, beacon, shadow):
     model = VoxelModel("Player")
-    # A tall traveler silhouette: boots, long coat, face, broad hat and
-    # antenna-like crown. The brim is the recognition cue at bird-view scale.
+    # Primary form: tall field cartographer with a long coat and broad hat.
     model.box(-2, 0, -2, 4, 1, 4, shadow)
     model.box(-2, 1, -1, 4, 2, 3, shadow)
     model.box(-2, 3, -1, 4, 7, 3, player)
     model.box(-3, 4, -1, 1, 5, 3, player)
     model.box(2, 4, -1, 1, 5, 3, player)
-    model.box(-2, 10, -1, 4, 3, 3, player)
-    model.box(-2, 11, -2, 4, 2, 1, visor)
+    # Secondary construction: coat opening, belt, shoulder satchel, and boots.
+    model.fine_box(-2, 20, -1, 4, 6, 3, player)
+    model.fine_box(-1, 6, -2, 2, 5, 1, shadow)
+    model.fine_box(-3, 8, 0, 2, 2, 3, shadow)
+    model.fine_box(2, 6, -1, 2, 3, 2, shadow)
+    model.fine_box(-2, 2, -2, 1, 2, 2, player)
+    model.fine_box(1, 2, -2, 1, 2, 2, player)
+    # Face and hat are the recognition focal area.
+    model.fine_box(-2, 22, -2, 4, 2, 1, visor)
     model.box(-4, 13, -3, 8, 1, 7, player)
-    model.box(-3, 14, -2, 6, 2, 5, player)
-    model.box(-2, 16, -1, 4, 1, 3, player)
-    model.box(-1, 17, 0, 2, 2, 2, beacon)
+    model.fine_box(-6, 28, -4, 12, 4, 8, player)
+    model.fine_box(-4, 32, -2, 8, 2, 4, shadow)
+    model.fine_box(-2, 34, 0, 4, 4, 4, beacon)
+    # A single asymmetric field tool gives the silhouette a functional story.
+    model.fine_box(3, 7, -1, 3, 2, 2, shadow)
+    model.fine_box(5, 5, -1, 2, 2, 2, beacon)
     return model.create()
 
 
@@ -318,7 +378,6 @@ os.makedirs(OUTPUT, exist_ok=True)
 
 ground_mat = material("Ground")
 ground_edge_mat = material("Ground Edge")
-grass_mat = material("Grass")
 breakable_mat = material("Breakable Stone")
 breakable_dark_mat = material("Breakable Stone Shadow")
 unbreakable_mat = material("Unbreakable Stone")
@@ -329,7 +388,7 @@ flower_mat = material("Flower", emission=True)
 player_mat = material("Player")
 visor_mat = material("Visor", emission=True)
 for mat, key in [
-    (ground_mat, "ground"), (ground_edge_mat, "ground_edge"), (grass_mat, "grass"),
+    (ground_mat, "ground"), (ground_edge_mat, "ground_edge"),
     (breakable_mat, "breakable"), (breakable_dark_mat, "breakable_dark"),
     (unbreakable_mat, "unbreakable"), (unbreakable_highlight_mat, "unbreakable_highlight"),
     (cactus_mat, "cactus"), (cactus_light_mat, "cactus_light"), (flower_mat, "flower"),
@@ -341,10 +400,13 @@ for mat, key in [
 
 assets = [
     ("ground_tile.glb", make_ground("GroundTile", ground_mat, ground_edge_mat)),
-    ("ground_tile_grass.glb", make_ground("GroundTileGrass", ground_mat, ground_edge_mat, grass_mat)),
     ("crag_breakable.glb", make_crag("CragBreakable", breakable_mat, breakable_dark_mat, breakable_mat)),
     ("crag_unbreakable.glb", make_crag("CragUnbreakable", unbreakable_mat, breakable_dark_mat, unbreakable_highlight_mat, True)),
-    ("cactus.glb", make_cactus(cactus_mat, cactus_light_mat, flower_mat)),
+    ("crag_breakable_spire.glb", make_crag("CragBreakableSpire", breakable_mat, breakable_dark_mat, breakable_mat, False, 1)),
+    ("crag_unbreakable_spire.glb", make_crag("CragUnbreakableSpire", unbreakable_mat, breakable_dark_mat, unbreakable_highlight_mat, True, 1)),
+    ("cactus.glb", make_cactus(cactus_mat, cactus_light_mat, flower_mat, 0)),
+    ("cactus_twin.glb", make_cactus(cactus_mat, cactus_light_mat, flower_mat, 1)),
+    ("cactus_low.glb", make_cactus(cactus_mat, cactus_light_mat, flower_mat, 2)),
     ("player_placeholder.glb", make_player(player_mat, visor_mat, flower_mat, ground_edge_mat)),
 ]
 for filename, root in assets:

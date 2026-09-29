@@ -172,7 +172,7 @@ Instead:
 
 > Pulling requests a deformation of the selected string toward a canonical or sufficiently stable **tight representative** of its current homotopy class, subject to current obstacles and non-crossing rules.
 
-The rendered animation may look physical: slack disappears, the loop slides around rocks, and curves become taut. However, the game-state transition is combinatorial/topological.
+The rendered animation may look physical: slack disappears, the loop slides around rocks, and curves become taut. However, the game-state transition is combinatorial/topological. A presentation-only damped strain-energy model may drive that motion, but it must not become rope health, continuous force, or authoritative gameplay state.
 
 ## 7.1 Tightening invariant
 
