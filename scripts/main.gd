@@ -426,19 +426,13 @@ func _build_obstacles() -> void:
 	for cell in occupied:
 		var kind: String = occupied[cell]
 		var asset: PackedScene = CRAG_BREAKABLE
-		match kind:
-			"crag_unbreakable":
-				asset = CRAG_UNBREAKABLE
-			"crag_unbreakable_spire":
-				asset = CRAG_UNBREAKABLE_SPIRE
-			"crag_breakable_spire":
-				asset = CRAG_BREAKABLE_SPIRE
-			"cactus_twin":
-				asset = CACTUS_TWIN
-			"cactus_low":
-				asset = CACTUS_LOW
-			"cactus":
-				asset = CACTUS
+		if kind.begins_with("crag_unbreakable"):
+			asset = CRAG_UNBREAKABLE_SPIRE if variant_rng.randf() > 0.5 else CRAG_UNBREAKABLE
+		elif kind.begins_with("crag"):
+			asset = CRAG_BREAKABLE_SPIRE if variant_rng.randf() > 0.48 else CRAG_BREAKABLE
+		elif kind.begins_with("cactus"):
+			var cactus_variant := variant_rng.randi_range(0, 2)
+			asset = [CACTUS, CACTUS_TWIN, CACTUS_LOW][cactus_variant]
 		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
 		root.position.y = GROUND_Y
