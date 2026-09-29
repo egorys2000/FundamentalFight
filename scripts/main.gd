@@ -17,11 +17,12 @@ const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
 const LOOP_WIDTH := 0.09
 const OBSTACLE_CLEARANCE := 0.92
-const OBSTACLE_BOUNDARY_SAMPLES := 12
 const GRID_SNAP_DISTANCE := 0.42
+const WATER_Y := 0.22
+const CRAG_SCALE := Vector3(0.46, 1.25, 0.46)
+const CACTUS_SCALE := Vector3.ONE * 0.72
 const PULL_ITERATIONS := 18
 const PULL_STEP := 0.12
-const WATER_Y := 0.22
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -30,7 +31,8 @@ const CRAG_UNBREAKABLE := preload("res://assets/generated/crag_unbreakable.glb")
 const CACTUS := preload("res://assets/generated/cactus.glb")
 const PLAYER_ASSET := preload("res://assets/generated/player_placeholder.glb")
 
-var player_cell := Vector2i(0, 0)
+var world_state := WorldState.new()
+var player_cell := Vector2i.ZERO
 var player: Node3D
 var camera: Camera3D
 var status_label: Label
@@ -42,21 +44,12 @@ var loop_pulled := false
 var scene_built := false
 var drawing_loop := false
 var draw_points: Array[Vector3] = []
-var water_cells := [
-	Vector2i(-3, 1),
-	Vector2i(-2, 1),
-	Vector2i(2, -1),
-	Vector2i(2, 0),
-	Vector2i(-1, -3),
-]
-var occupied := {
-	Vector2i(-3, -2): "crag_breakable",
-	Vector2i(0, 2): "crag_unbreakable",
-	Vector2i(3, -2): "crag_breakable",
-	Vector2i(-2, 2): "crag_unbreakable",
-	Vector2i(2, 2): "crag_breakable",
-	Vector2i(3, 0): "cactus"
-}
+var occupied: Dictionary:
+	get:
+		return world_state.occupied
+var water_cells: Array:
+	get:
+		return world_state.water_cells
 
 func _ready() -> void:
 	if scene_built:
@@ -252,7 +245,7 @@ func _build_obstacles() -> void:
 		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
 		root.position.y = GROUND_Y
-		root.scale = Vector3.ONE * (0.62 if kind.begins_with("crag") else 0.72)
+		root.scale = CRAG_SCALE if kind.begins_with("crag") else CACTUS_SCALE
 		add_child(root)
 
 func _build_player() -> void:
@@ -294,16 +287,6 @@ func _build_ui() -> void:
 	status_label.add_theme_color_override("font_color", Color("#d8e2d5"))
 	telemetry.add_child(status_label)
 
-	var controls := _panel(Vector2(24, 664), Vector2(650, 54), Color("#0b1820e8"), Color("#28424a"))
-	controls.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	controls.position = Vector2(24, -78)
-	canvas.add_child(controls)
-	var help := Label.new()
-	help.position = Vector2(18, 17)
-	help.text = "WASD / ARROWS  MOVE     LEFT-DRAG  DRAW LOOP     P  TIGHTEN     X  REMOVE     R  RESET"
-	help.add_theme_font_size_override("font_size", 12)
-	help.add_theme_color_override("font_color", Color("#a8c2c0"))
-	controls.add_child(help)
 	_update_status()
 
 func _panel(position: Vector2, size: Vector2, fill: Color, border: Color) -> Panel:
@@ -363,9 +346,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_down") or (key_event != null and key_event.keycode == KEY_S):
 		direction = Vector2i(0, 1)
 	elif event.is_action_pressed("ui_left") or (key_event != null and key_event.keycode == KEY_A):
-		direction = Vector2i(-1, 0)
-	elif event.is_action_pressed("ui_right") or (key_event != null and key_event.keycode == KEY_D):
 		direction = Vector2i(1, 0)
+	elif event.is_action_pressed("ui_right") or (key_event != null and key_event.keycode == KEY_D):
+		direction = Vector2i(-1, 0)
 	if direction != Vector2i.ZERO:
 		if enable_manual_movement:
 			_move_player(player_cell + direction)
@@ -436,9 +419,9 @@ func _finish_loop_drawing() -> void:
 		return
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	draw_points.append(player_position)
-	loop_points = _simplify_loop_path(draw_points)
+	loop_points = LoopGeometry.simplify_path(draw_points, CELL_SIZE * 0.12)
 	draw_points.clear()
-	loop_caught_cells = _cells_inside_loop()
+	loop_caught_cells = LoopGeometry.enclosed_crags(loop_points, world_state, _cell_to_world)
 	loop_pulled = false
 	_redraw_loop()
 	_update_status()
@@ -467,32 +450,13 @@ func _snap_loop_point(point: Vector3) -> Vector3:
 	return point
 
 func _simplify_loop_path(points: Array[Vector3]) -> Array[Vector3]:
-	var result: Array[Vector3] = []
-	for point in points:
-		if result.is_empty() or point.distance_to(result.back()) >= CELL_SIZE * 0.12:
-			result.append(point)
-	if result.size() >= 2:
-		result[0] = points[0]
-		result[result.size() - 1] = points[points.size() - 1]
-	return result
+	return LoopGeometry.simplify_path(points, CELL_SIZE * 0.12)
 
 func _cells_inside_loop() -> Array[Vector2i]:
-	var result: Array[Vector2i] = []
-	for cell in occupied:
-		if occupied[cell].begins_with("crag") and _point_inside_loop(_cell_to_world(cell)):
-			result.append(cell)
-	return result
+	return LoopGeometry.enclosed_crags(loop_points, world_state, _cell_to_world)
 
 func _point_inside_loop(point: Vector3) -> bool:
-	var inside := false
-	for i in range(loop_points.size() - 1):
-		var a: Vector3 = loop_points[i]
-		var b: Vector3 = loop_points[i + 1]
-		if (a.z > point.z) != (b.z > point.z):
-			var x_at_point := (b.x - a.x) * (point.z - a.z) / (b.z - a.z) + a.x
-			if point.x < x_at_point:
-				inside = not inside
-	return inside
+	return LoopGeometry.point_inside_loop(point, loop_points)
 
 func _pull_loop() -> void:
 	if loop_points.is_empty():
@@ -519,133 +483,16 @@ func _pull_loop() -> void:
 	_update_status()
 
 func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
-	if start.size() < 4:
-		return []
-	var current: Array[Vector3] = []
-	for point in start:
-		current.append(point)
-	current[0] = player_position
-	current[current.size() - 1] = player_position
-	var center := _loop_center(current)
-	for iteration in range(PULL_ITERATIONS):
-		var candidate: Array[Vector3] = []
-		for i in range(current.size()):
-			if i == 0 or i == current.size() - 1:
-				candidate.append(player_position)
-				continue
-			var inward := current[i].lerp(center, PULL_STEP)
-			candidate.append(_push_out_of_obstacles(inward))
-		if _loop_segments_clear(candidate):
-			current = candidate
-		else:
-			break
-		center = _loop_center(current)
-	return current if _loop_segments_clear(current) else []
-
-func _loop_center(points: Array) -> Vector3:
-	var center := Vector3.ZERO
-	var count := maxi(points.size() - 1, 1)
-	for i in range(count):
-		center += points[i]
-	return center / count
-
-func _push_out_of_obstacles(point: Vector3) -> Vector3:
-	var result := point
-	for cell in occupied:
-		var obstacle := _cell_to_world(cell)
-		var offset := Vector2(result.x - obstacle.x, result.z - obstacle.z)
-		var minimum_distance := OBSTACLE_CLEARANCE
-		if offset.length() < minimum_distance:
-			var direction := offset.normalized()
-			if direction.length_squared() < 0.01:
-				direction = Vector2.RIGHT
-			result.x = obstacle.x + direction.x * minimum_distance
-			result.z = obstacle.z + direction.y * minimum_distance
-	return result
+	return LoopGeometry.tightened_loop(start, player_position, world_state, _cell_to_world, OBSTACLE_CLEARANCE, PULL_ITERATIONS, PULL_STEP)
 
 func _loop_segments_clear(points: Array) -> bool:
-	if points.size() < 2:
-		return false
-	for i in range(points.size() - 1):
-		var start: Vector3 = points[i]
-		var end: Vector3 = points[i + 1]
-		for cell in occupied:
-			var obstacle := _cell_to_world(cell)
-			if _segment_hits_obstacle(start, end, obstacle):
-				return false
-	return true
+	return LoopGeometry.segments_clear(points, world_state, _cell_to_world, OBSTACLE_CLEARANCE)
 
 func _loop_touches_cactus(points: Array) -> bool:
-	for cell in occupied:
-		if occupied[cell] != "cactus":
-			continue
-		var cactus := _cell_to_world(cell)
-		for i in range(points.size() - 1):
-			if _segment_hits_obstacle(points[i], points[i + 1], cactus):
-				return true
-	return false
+	return LoopGeometry.touches_cactus(points, world_state, _cell_to_world, OBSTACLE_CLEARANCE)
 
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
-	var segment := Vector2(end.x - start.x, end.z - start.z)
-	var segment_length_squared := segment.length_squared()
-	var projection := 0.0
-	if segment_length_squared > 0.0001:
-		projection = clampf(
-			Vector2(obstacle.x - start.x, obstacle.z - start.z).dot(segment) / segment_length_squared,
-			0.0,
-			1.0
-		)
-	var nearest := Vector2(start.x, start.z) + segment * projection
-	return nearest.distance_to(Vector2(obstacle.x, obstacle.z)) < OBSTACLE_CLEARANCE
-
-func _convex_hull(points: Array[Vector2]) -> Array[Vector2]:
-	var sorted := points.duplicate()
-	sorted.sort_custom(func(a: Vector2, b: Vector2) -> bool:
-		if is_equal_approx(a.x, b.x):
-			return a.y < b.y
-		return a.x < b.x
-	)
-	var lower: Array[Vector2] = []
-	for point in sorted:
-		while lower.size() >= 2 and _cross(lower[-1] - lower[-2], point - lower[-1]) <= 0.0:
-			lower.pop_back()
-		lower.append(point)
-	var upper: Array[Vector2] = []
-	for index in range(sorted.size() - 1, -1, -1):
-		var point: Vector2 = sorted[index]
-		while upper.size() >= 2 and _cross(upper[-1] - upper[-2], point - upper[-1]) <= 0.0:
-			upper.pop_back()
-		upper.append(point)
-	lower.pop_back()
-	upper.pop_back()
-	lower.append_array(upper)
-	return lower
-
-func _cross(a: Vector2, b: Vector2) -> float:
-	return a.x * b.y - a.y * b.x
-
-func _nearest_point_index(points: Array[Vector2], target: Vector2) -> int:
-	var best_index := 0
-	var best_distance := INF
-	for i in range(points.size()):
-		var distance := points[i].distance_squared_to(target)
-		if distance < best_distance:
-			best_distance = distance
-			best_index = i
-	return best_index
-
-func _sample_polygon(polygon: Array[Vector2], normalized_distance: float) -> Vector2:
-	var perimeter := 0.0
-	for i in range(polygon.size()):
-		perimeter += polygon[i].distance_to(polygon[(i + 1) % polygon.size()])
-	var remaining := fmod(normalized_distance, 1.0) * perimeter
-	for i in range(polygon.size()):
-		var next: Vector2 = polygon[(i + 1) % polygon.size()]
-		var edge_length := polygon[i].distance_to(next)
-		if remaining <= edge_length:
-			return polygon[i].lerp(next, remaining / maxf(edge_length, 0.001))
-		remaining -= edge_length
-	return polygon[0]
+	return LoopGeometry.segment_hits_obstacle(start, end, obstacle, OBSTACLE_CLEARANCE)
 
 func _tween_loop(progress: float, start: Array, target: Array) -> void:
 	var point_count := mini(start.size(), target.size())
