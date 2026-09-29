@@ -43,6 +43,7 @@ var status_label: Label
 var loop_visual: Node3D
 var loop_material: StandardMaterial3D
 var loop_points: Array[Vector3] = []
+var completed_loops: Array[Array] = []
 var loop_caught_cells: Array[Vector2i] = []
 var loop_pulled := false
 var pull_start: Array[Vector3] = []
@@ -54,6 +55,7 @@ var strain_peak_energy := 0.0
 var scene_built := false
 var drawing_loop := false
 var draw_points: Array[Vector3] = []
+var draw_origin := Vector3.ZERO
 var occupied: Dictionary:
 	get:
 		return world_state.occupied
@@ -392,27 +394,25 @@ func _move_player(target: Vector2i) -> void:
 func _update_status() -> void:
 	if status_label:
 		var loop_state := "none"
-		if not loop_points.is_empty():
+		if not completed_loops.is_empty() or drawing_loop:
 			loop_state = "tight" if loop_pulled else "placed"
-		status_label.text = "CELL        %02d, %02d\nCRAGS       05\nCACTUS      01\nLOOP        %s\nSTRAIN      %0.2f" % [player_cell.x, player_cell.y, loop_state.to_upper(), strain_energy]
+		status_label.text = "CELL        %02d, %02d\nCRAGS       05\nCACTUS      01\nLOOPS       %d\nLOOP        %s\nSTRAIN      %0.2f" % [player_cell.x, player_cell.y, completed_loops.size(), loop_state.to_upper(), strain_energy]
 
 func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
 
 func _begin_loop_drawing(screen_position: Vector2) -> void:
-	if enable_loop_persistence and not loop_points.is_empty():
-		status_label.text = "A persistent loop is already deployed; press X to recover it"
-		return
-	if max_strings_per_player < 1:
-		status_label.text = "No string slots available"
+	if completed_loops.size() >= max_strings_per_player:
+		status_label.text = "String capacity reached (%d)" % max_strings_per_player
 		return
 	var world_position := _screen_to_ground(screen_position)
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
-	if world_position == Vector3.INF or world_position.distance_to(player_position) > CELL_SIZE * 1.25:
+	if world_position == Vector3.INF or _snap_loop_point(world_position).distance_to(player_position) > CELL_SIZE * 0.5:
 		status_label.text = "Start the loop by dragging from the player"
 		return
 	drawing_loop = true
-	draw_points = [player_position]
+	draw_origin = player_position
+	draw_points = [draw_origin]
 	loop_points = draw_points.duplicate()
 	loop_pulled = false
 	_redraw_loop()
@@ -440,8 +440,7 @@ func _finish_loop_drawing() -> void:
 		_redraw_loop()
 		_update_status()
 		return
-	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
-	draw_points.append(player_position)
+	draw_points.append(draw_origin)
 	loop_points = LoopGeometry.simplify_path(draw_points, CELL_SIZE * 0.12)
 	draw_points.clear()
 	if enable_obstacle_clearance and not LoopGeometry.segments_clear(loop_points, world_state, _cell_to_world, OBSTACLE_CLEARANCE):
@@ -452,6 +451,7 @@ func _finish_loop_drawing() -> void:
 		return
 	loop_caught_cells = LoopGeometry.enclosed_crags(loop_points, world_state, _cell_to_world)
 	loop_pulled = false
+	completed_loops.append(loop_points.duplicate())
 	_redraw_loop()
 	_update_status()
 	if not enable_loop_persistence:
@@ -470,12 +470,8 @@ func _screen_to_ground(screen_position: Vector2) -> Vector3:
 func _snap_loop_point(point: Vector3) -> Vector3:
 	var grid_x := snappedf(point.x / CELL_SIZE, 1.0) * CELL_SIZE
 	var grid_z := snappedf(point.z / CELL_SIZE, 1.0) * CELL_SIZE
-	var snap_x: bool = absf(point.x - grid_x) <= GRID_SNAP_DISTANCE
-	var snap_z: bool = absf(point.z - grid_z) <= GRID_SNAP_DISTANCE
-	if snap_x:
-		point.x = grid_x
-	if snap_z:
-		point.z = grid_z
+	point.x = grid_x
+	point.z = grid_z
 	return point
 
 func _simplify_loop_path(points: Array[Vector3]) -> Array[Vector3]:
@@ -488,8 +484,9 @@ func _point_inside_loop(point: Vector3) -> bool:
 	return LoopGeometry.point_inside_loop(point, loop_points)
 
 func _pull_loop() -> void:
-	if loop_points.is_empty():
+	if completed_loops.is_empty():
 		return
+	loop_points = completed_loops.back().duplicate()
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	var target := _build_tightened_loop(start, player_position)
@@ -544,9 +541,13 @@ func _advance_strain_animation(delta: float) -> void:
 		pull_progress = minf(pull_progress, 1.0)
 		loop_points = _interpolate_pull(pull_progress, pull_start, pull_target)
 	strain_energy = _strain_energy(loop_points, pull_target)
+	if not completed_loops.is_empty():
+		completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
 	_redraw_loop()
 	if absf(1.0 - pull_progress) < STRAIN_SETTLE_SPEED and absf(pull_velocity) < STRAIN_SETTLE_SPEED and strain_energy < STRAIN_SETTLE_ENERGY:
 		loop_points = pull_target.duplicate()
+		if not completed_loops.is_empty():
+			completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
 		pull_start.clear()
 		pull_target.clear()
 		pull_progress = 1.0
@@ -572,6 +573,9 @@ func _strain_energy(current: Array, target: Array) -> float:
 	return 0.5 * STRAIN_STIFFNESS * displacement_squared / maxf(float(point_count), 1.0)
 
 func _remove_loop() -> void:
+	if completed_loops.is_empty():
+		return
+	completed_loops.pop_back()
 	loop_points.clear()
 	loop_caught_cells.clear()
 	loop_pulled = false
@@ -586,18 +590,32 @@ func _remove_loop() -> void:
 
 func _redraw_loop() -> void:
 	for child in loop_visual.get_children():
-		child.queue_free()
-	if loop_points.size() < 3 or loop_points[0].distance_to(loop_points[loop_points.size() - 1]) > 0.01:
+		child.free()
+	for path in completed_loops:
+		_add_rope_visual(path)
+	if drawing_loop and draw_points.size() >= 2:
+		var preview := draw_points.duplicate()
+		if preview[preview.size() - 1].distance_to(draw_origin) > 0.01:
+			preview.append(draw_origin)
+		_add_rope_visual(preview)
+
+func _add_rope_visual(path: Array) -> void:
+	if path.size() < 3:
 		return
+	var closed_path: Array[Vector3] = []
+	for point in path:
+		closed_path.append(point)
+	if closed_path[0].distance_to(closed_path[closed_path.size() - 1]) > 0.01:
+		closed_path.append(closed_path[0])
 	var rope := MeshInstance3D.new()
 	rope.name = "RopeMesh"
-	rope.mesh = _build_rope_mesh()
+	rope.mesh = _build_rope_mesh(closed_path)
 	rope.material_override = loop_material
 	loop_visual.add_child(rope)
 
-func _build_rope_mesh() -> ArrayMesh:
+func _build_rope_mesh(path: Array[Vector3]) -> ArrayMesh:
 	var sides := 8
-	var rings := loop_points.size() - 1
+	var rings := path.size() - 1
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -605,9 +623,9 @@ func _build_rope_mesh() -> ArrayMesh:
 	var energy_ratio := clampf(strain_energy / maxf(strain_peak_energy, 0.001), 0.0, 1.0)
 	var radius := LOOP_WIDTH * (1.0 + energy_ratio * 0.35)
 	for ring_index in range(rings):
-		var point: Vector3 = loop_points[ring_index]
-		var previous: Vector3 = loop_points[(ring_index - 1 + rings) % rings]
-		var next: Vector3 = loop_points[(ring_index + 1) % rings]
+		var point: Vector3 = path[ring_index]
+		var previous: Vector3 = path[(ring_index - 1 + rings) % rings]
+		var next: Vector3 = path[(ring_index + 1) % rings]
 		var tangent := Vector2(next.x - previous.x, next.z - previous.z).normalized()
 		if tangent.length_squared() < 0.01:
 			tangent = Vector2.RIGHT
