@@ -68,6 +68,22 @@ func test_tightening_does_not_increase_perimeter() -> void:
 	assert(not target.is_empty())
 	assert(_perimeter(target) <= _perimeter(start) + 0.001)
 
+func test_tightening_actually_shortens_a_loose_nontrivial_loop() -> void:
+	before_each()
+	var player := Vector3(0.0, 0.16, -3.0)
+	var start := _test_loop(player)
+	var target: Array = LoopGeometryClass.tightened_loop(
+		start,
+		player,
+		state,
+		Callable(self, "_cell_to_world"),
+		CLEARANCE,
+		72,
+		0.2
+	)
+	assert(not target.is_empty())
+	assert(_perimeter(target) < _perimeter(start) - 0.01)
+
 func test_every_animation_frame_stays_outside_holes() -> void:
 	before_each()
 	var player := Vector3(0.0, 0.16, -3.0)

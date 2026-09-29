@@ -61,34 +61,25 @@ static func tightened_loop(start: Array, player_position: Vector3, state: WorldS
 		current.append(point)
 	current[0] = player_position
 	current[current.size() - 1] = player_position
-	var center := _loop_center(current)
+	var current_perimeter := _perimeter(current)
 	for iteration in range(iterations):
-		var candidate: Array[Vector3] = []
-		for i in range(current.size()):
-			if i == 0 or i == current.size() - 1:
-				candidate.append(player_position)
+		var changed := false
+		for i in range(1, current.size() - 1):
+			var previous: Vector3 = current[i - 1]
+			var next: Vector3 = current[i + 1]
+			var midpoint := (previous + next) * 0.5
+			var proposed := _push_out_of_obstacles(current[i].lerp(midpoint, step), state, cell_to_world, clearance)
+			var local_candidate := current.duplicate()
+			local_candidate[i] = proposed
+			if not segments_clear(local_candidate, state, cell_to_world, clearance):
 				continue
-			candidate.append(_push_out_of_obstacles(current[i].lerp(center, step), state, cell_to_world, clearance))
-		if segments_clear(candidate, state, cell_to_world, clearance):
-			current = candidate
-			center = _loop_center(current)
-		else:
-			# A straight radial move can cross a puncture even when the
-			# existing representative is legal. Keep that point in place
-			# and continue relaxing the other points; this is not a
-			# topological obstruction or a proof that the word is invalid.
-			var partial := current.duplicate()
-			var changed := false
-			for i in range(1, current.size() - 1):
-				var local_candidate := current.duplicate()
-				local_candidate[i] = _push_out_of_obstacles(current[i].lerp(center, step), state, cell_to_world, clearance)
-				if segments_clear(local_candidate, state, cell_to_world, clearance):
-					partial = local_candidate
-					changed = true
-			if not changed:
-				break
-			current = partial
-			center = _loop_center(current)
+			var proposed_perimeter := _perimeter(local_candidate)
+			if proposed_perimeter < current_perimeter - 0.0001:
+				current = local_candidate
+				current_perimeter = proposed_perimeter
+				changed = true
+		if not changed:
+			break
 	# A legal representative is already a valid tightened result when no
 	# inward relaxation can be made without changing its obstacle routing.
 	return current
@@ -126,6 +117,12 @@ static func _loop_center(points: Array) -> Vector3:
 	for i in range(count):
 		center += points[i]
 	return center / count
+
+static func _perimeter(points: Array) -> float:
+	var result := 0.0
+	for i in range(points.size() - 1):
+		result += points[i].distance_to(points[i + 1])
+	return result
 
 static func _push_out_of_obstacles(point: Vector3, state: WorldState, cell_to_world: Callable, clearance: float) -> Vector3:
 	var result := point
