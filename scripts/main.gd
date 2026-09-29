@@ -50,6 +50,7 @@ var pull_start: Array[Vector3] = []
 var pull_target: Array[Vector3] = []
 var pull_progress := 0.0
 var pull_velocity := 0.0
+var pull_trivial := false
 var strain_energy := 0.0
 var strain_peak_energy := 0.0
 var scene_built := false
@@ -433,6 +434,14 @@ func _append_draw_point(screen_position: Vector2) -> void:
 func _finish_loop_drawing() -> void:
 	if not drawing_loop:
 		return
+	# Releasing the mouse is not enough to close a lasso. The endpoint must
+	# explicitly return to the player's anchor; until then the preview remains
+	# an open rope and the player can continue drawing.
+	if draw_points.size() < 2 or draw_points.back().distance_to(draw_origin) > CELL_SIZE * 0.5:
+		_redraw_loop()
+		_update_status()
+		status_label.text = "Lasso still open: return the rope to the player to close it"
+		return
 	drawing_loop = false
 	if draw_points.size() < 4:
 		draw_points.clear()
@@ -490,6 +499,10 @@ func _pull_loop() -> void:
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	var target := _build_tightened_loop(start, player_position)
+	var trivial := LoopGeometry.is_trivial(start, world_state, _cell_to_world)
+	pull_trivial = trivial
+	if trivial:
+		target = _collapsed_loop(start, player_position)
 	if target.size() != start.size():
 		loop_pulled = false
 		status_label.text = "Pull blocked: the current rope crosses an obstacle"
@@ -514,6 +527,12 @@ func _pull_loop() -> void:
 
 func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
 	return LoopGeometry.tightened_loop(start, player_position, world_state, _cell_to_world, OBSTACLE_CLEARANCE, PULL_ITERATIONS, PULL_STEP)
+
+func _collapsed_loop(start: Array, player_position: Vector3) -> Array:
+	var collapsed: Array[Vector3] = []
+	for _point in start:
+		collapsed.append(player_position)
+	return collapsed
 
 func _loop_segments_clear(points: Array) -> bool:
 	return LoopGeometry.segments_clear(points, world_state, _cell_to_world, OBSTACLE_CLEARANCE)
@@ -546,12 +565,15 @@ func _advance_strain_animation(delta: float) -> void:
 	_redraw_loop()
 	if absf(1.0 - pull_progress) < STRAIN_SETTLE_SPEED and absf(pull_velocity) < STRAIN_SETTLE_SPEED and strain_energy < STRAIN_SETTLE_ENERGY:
 		loop_points = pull_target.duplicate()
-		if not completed_loops.is_empty():
+		if pull_trivial and not completed_loops.is_empty():
+			completed_loops.pop_back()
+		elif not completed_loops.is_empty():
 			completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
 		pull_start.clear()
 		pull_target.clear()
 		pull_progress = 1.0
 		pull_velocity = 0.0
+		pull_trivial = false
 		strain_energy = 0.0
 		_redraw_loop()
 		_update_status()
@@ -583,6 +605,7 @@ func _remove_loop() -> void:
 	pull_target.clear()
 	pull_progress = 0.0
 	pull_velocity = 0.0
+	pull_trivial = false
 	strain_energy = 0.0
 	strain_peak_energy = 0.0
 	_redraw_loop()

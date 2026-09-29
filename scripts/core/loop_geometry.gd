@@ -29,6 +29,15 @@ static func enclosed_crags(loop: Array, state: WorldState, cell_to_world: Callab
 			result.append(cell)
 	return result
 
+static func encloses_puncture(loop: Array, state: WorldState, cell_to_world: Callable) -> bool:
+	for cell in state.occupied:
+		if point_inside_loop(cell_to_world.call(cell), loop):
+			return true
+	return false
+
+static func is_trivial(loop: Array, state: WorldState, cell_to_world: Callable) -> bool:
+	return not encloses_puncture(loop, state, cell_to_world)
+
 static func tightened_loop(start: Array, player_position: Vector3, state: WorldState, cell_to_world: Callable, clearance: float, iterations: int, step: float) -> Array:
 	if start.size() < 4:
 		return []
