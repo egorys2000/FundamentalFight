@@ -23,6 +23,10 @@ const CRAG_SCALE := Vector3(0.46, 1.25, 0.46)
 const CACTUS_SCALE := Vector3.ONE * 0.72
 const PULL_ITERATIONS := 18
 const PULL_STEP := 0.12
+const STRAIN_STIFFNESS := 42.0
+const STRAIN_DAMPING := 10.5
+const STRAIN_SETTLE_SPEED := 0.018
+const STRAIN_SETTLE_ENERGY := 0.0008
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -41,6 +45,12 @@ var loop_material: StandardMaterial3D
 var loop_points: Array[Vector3] = []
 var loop_caught_cells: Array[Vector2i] = []
 var loop_pulled := false
+var pull_start: Array[Vector3] = []
+var pull_target: Array[Vector3] = []
+var pull_progress := 0.0
+var pull_velocity := 0.0
+var strain_energy := 0.0
+var strain_peak_energy := 0.0
 var scene_built := false
 var drawing_loop := false
 var draw_points: Array[Vector3] = []
@@ -68,6 +78,9 @@ func _ready() -> void:
 	loop_material.emission = Color("#a66b26")
 	loop_material.emission_energy_multiplier = 0.55
 	_build_ui()
+
+func _process(delta: float) -> void:
+	_advance_strain_animation(delta)
 
 func _build_environment() -> void:
 	var world_environment := WorldEnvironment.new()
@@ -371,7 +384,7 @@ func _update_status() -> void:
 		var loop_state := "none"
 		if not loop_points.is_empty():
 			loop_state = "tight" if loop_pulled else "placed"
-		status_label.text = "CELL  %02d, %02d     CRAGS  5     CACTUS  1\nLOOP  %s" % [player_cell.x, player_cell.y, loop_state.to_upper()]
+		status_label.text = "CELL  %02d, %02d     CRAGS  5     CACTUS  1\nLOOP  %s     STRAIN  %0.2f" % [player_cell.x, player_cell.y, loop_state.to_upper(), strain_energy]
 
 func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
@@ -461,7 +474,6 @@ func _point_inside_loop(point: Vector3) -> bool:
 func _pull_loop() -> void:
 	if loop_points.is_empty():
 		return
-	loop_pulled = true
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	var target := _build_tightened_loop(start, player_position)
@@ -477,9 +489,14 @@ func _pull_loop() -> void:
 		_remove_loop()
 		status_label.text = "Cactus cut the loop during tightening"
 		return
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_method(_tween_loop.bind(start, target), 0.0, 1.0, 0.65)
+	pull_start = start
+	pull_target = target
+	pull_progress = 0.0
+	pull_velocity = 0.0
+	strain_peak_energy = _strain_energy(start, target)
+	strain_energy = strain_peak_energy
+	loop_pulled = true
+	_redraw_loop()
 	_update_status()
 
 func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
@@ -494,21 +511,60 @@ func _loop_touches_cactus(points: Array) -> bool:
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
 	return LoopGeometry.segment_hits_obstacle(start, end, obstacle, OBSTACLE_CLEARANCE)
 
-func _tween_loop(progress: float, start: Array, target: Array) -> void:
+func _advance_strain_animation(delta: float) -> void:
+	if pull_start.is_empty() or pull_target.is_empty():
+		return
+	var displacement := 1.0 - pull_progress
+	var acceleration := displacement * STRAIN_STIFFNESS - pull_velocity * STRAIN_DAMPING
+	pull_velocity += acceleration * delta
+	pull_progress += pull_velocity * delta
+	var candidate := _interpolate_pull(pull_progress, pull_start, pull_target)
+	if _loop_segments_clear(candidate):
+		loop_points = candidate
+	else:
+		# Collision is a hard visual constraint; dissipate the invalid portion
+		# of the spring instead of allowing the animation to tunnel through it.
+		pull_velocity = minf(pull_velocity, 0.0)
+		pull_progress = minf(pull_progress, 1.0)
+		loop_points = _interpolate_pull(pull_progress, pull_start, pull_target)
+	strain_energy = _strain_energy(loop_points, pull_target)
+	_redraw_loop()
+	if absf(1.0 - pull_progress) < STRAIN_SETTLE_SPEED and absf(pull_velocity) < STRAIN_SETTLE_SPEED and strain_energy < STRAIN_SETTLE_ENERGY:
+		loop_points = pull_target.duplicate()
+		pull_start.clear()
+		pull_target.clear()
+		pull_progress = 1.0
+		pull_velocity = 0.0
+		strain_energy = 0.0
+		_redraw_loop()
+		_update_status()
+
+func _interpolate_pull(progress: float, start: Array, target: Array) -> Array[Vector3]:
 	var point_count := mini(start.size(), target.size())
 	var candidate: Array[Vector3] = []
 	for i in range(point_count):
 		var start_point: Vector3 = start[i]
 		var target_point: Vector3 = target[i]
-		candidate.append(start_point.lerp(target_point, progress))
-	if not enable_obstacle_clearance or _loop_segments_clear(candidate):
-		loop_points = candidate
-		_redraw_loop()
+		candidate.append(start_point.lerp(target_point, clampf(progress, 0.0, 1.0)))
+	return candidate
+
+func _strain_energy(current: Array, target: Array) -> float:
+	var displacement_squared := 0.0
+	var point_count := mini(current.size(), target.size())
+	for i in range(point_count):
+		displacement_squared += current[i].distance_squared_to(target[i])
+	return 0.5 * STRAIN_STIFFNESS * displacement_squared / maxf(float(point_count), 1.0)
 
 func _remove_loop() -> void:
 	loop_points.clear()
 	loop_caught_cells.clear()
 	loop_pulled = false
+	pull_start.clear()
+	pull_target.clear()
+	pull_progress = 0.0
+	pull_velocity = 0.0
+	strain_energy = 0.0
+	strain_peak_energy = 0.0
 	_redraw_loop()
 	_update_status()
 
@@ -525,6 +581,9 @@ func _redraw_loop() -> void:
 		var segment := MeshInstance3D.new()
 		segment.mesh = segment_mesh
 		segment.material_override = loop_material
+		var energy_ratio := clampf(strain_energy / maxf(strain_peak_energy, 0.001), 0.0, 1.0)
+		segment.scale.y = 1.0 + energy_ratio * 0.35
+		segment.scale.x = 1.0 + energy_ratio * 0.35
 		segment.position = (start + end) * 0.5
 		segment.look_at(end, Vector3.UP)
 		loop_visual.add_child(segment)
