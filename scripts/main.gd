@@ -355,9 +355,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var direction := Vector2i.ZERO
 	if event.is_action_pressed("ui_up") or (key_event != null and key_event.keycode == KEY_W):
-		direction = Vector2i(0, -1)
-	elif event.is_action_pressed("ui_down") or (key_event != null and key_event.keycode == KEY_S):
 		direction = Vector2i(0, 1)
+	elif event.is_action_pressed("ui_down") or (key_event != null and key_event.keycode == KEY_S):
+		direction = Vector2i(0, -1)
 	elif event.is_action_pressed("ui_left") or (key_event != null and key_event.keycode == KEY_A):
 		direction = Vector2i(1, 0)
 	elif event.is_action_pressed("ui_right") or (key_event != null and key_event.keycode == KEY_D):
