@@ -39,7 +39,9 @@ const CACTUS_TWIN := preload("res://assets/generated/cactus_twin.glb")
 const CACTUS_LOW := preload("res://assets/generated/cactus_low.glb")
 const PLAYER_ASSET := preload("res://assets/generated/player_placeholder.glb")
 
-var mechanics := MechanicsCore.new()
+const MechanicsCoreClass = preload("res://scripts/core/mechanics_core.gd")
+
+var mechanics = MechanicsCoreClass.new()
 var world_state: WorldState = mechanics.world_state
 var player_cell := Vector2i.ZERO
 var player: Node3D
@@ -440,9 +442,6 @@ func _move_player(target: Vector2i) -> void:
 			status_label.text = "Outside the playable manifold"
 		return
 	player_cell = mechanics.player_cell
-	if occupied.has(target):
-		status_label.text = "Blocked: %s at (%d, %d)" % [occupied[target].capitalize(), target.x, target.y]
-		return
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	var move_duration := mechanics.movement_duration(_pulling_nontrivial_loop())
@@ -628,7 +627,6 @@ func _advance_strain_animation(delta: float) -> void:
 	if absf(1.0 - pull_progress) < STRAIN_SETTLE_SPEED and absf(pull_velocity) < STRAIN_SETTLE_SPEED and strain_energy < STRAIN_SETTLE_ENERGY:
 		loop_points = pull_target.duplicate()
 		if pull_trivial and not completed_loops.is_empty():
-			completed_loops.pop_back()
 			mechanics.remove_latest_loop()
 		elif not completed_loops.is_empty():
 			completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
@@ -660,7 +658,6 @@ func _strain_energy(current: Array, target: Array) -> float:
 func _remove_loop() -> void:
 	if completed_loops.is_empty():
 		return
-	completed_loops.pop_back()
 	mechanics.remove_latest_loop()
 	loop_points.clear()
 	loop_caught_cells.clear()
