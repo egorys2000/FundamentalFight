@@ -27,6 +27,8 @@ const STRAIN_STIFFNESS := 42.0
 const STRAIN_DAMPING := 10.5
 const STRAIN_SETTLE_SPEED := 0.018
 const STRAIN_SETTLE_ENERGY := 0.0008
+const MANUAL_MOVE_DURATION := 0.16
+const LASSO_MOVE_DURATION := 0.055
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -389,7 +391,8 @@ func _move_player(target: Vector2i) -> void:
 	player_cell = target
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.tween_property(player, "position", _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0), 0.16)
+	var move_duration := LASSO_MOVE_DURATION if _pulling_nontrivial_loop() else MANUAL_MOVE_DURATION
+	tween.tween_property(player, "position", _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0), move_duration)
 	_update_status()
 
 func _update_status() -> void:
@@ -527,6 +530,9 @@ func _pull_loop() -> void:
 
 func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
 	return LoopGeometry.tightened_loop(start, player_position, world_state, _cell_to_world, OBSTACLE_CLEARANCE, PULL_ITERATIONS, PULL_STEP)
+
+func _pulling_nontrivial_loop() -> bool:
+	return not pull_start.is_empty() and not pull_trivial
 
 func _collapsed_loop(start: Array, player_position: Vector3) -> Array:
 	var collapsed: Array[Vector3] = []
