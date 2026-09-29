@@ -38,6 +38,19 @@ static func encloses_puncture(loop: Array, state: WorldState, cell_to_world: Cal
 static func is_trivial(loop: Array, state: WorldState, cell_to_world: Callable) -> bool:
 	return not encloses_puncture(loop, state, cell_to_world)
 
+static func has_self_intersection(loop: Array) -> bool:
+	if loop.size() < 5:
+		return false
+	for first in range(loop.size() - 1):
+		for second in range(first + 2, loop.size() - 1):
+			if first == 0 and second == loop.size() - 2:
+				continue
+			if loop[first].distance_squared_to(loop[second]) < 0.0001:
+				return true
+			if _segments_intersect(loop[first], loop[first + 1], loop[second], loop[second + 1]):
+				return true
+	return false
+
 static func tightened_loop(start: Array, player_position: Vector3, state: WorldState, cell_to_world: Callable, clearance: float, iterations: int, step: float) -> Array:
 	if start.size() < 4:
 		return []
@@ -126,3 +139,20 @@ static func _push_out_of_obstacles(point: Vector3, state: WorldState, cell_to_wo
 			result.x = obstacle.x + direction.x * clearance
 			result.z = obstacle.z + direction.y * clearance
 	return result
+
+static func _segments_intersect(first_start: Vector3, first_end: Vector3, second_start: Vector3, second_end: Vector3) -> bool:
+	var a := Vector2(first_start.x, first_start.z)
+	var b := Vector2(first_end.x, first_end.z)
+	var c := Vector2(second_start.x, second_start.z)
+	var d := Vector2(second_end.x, second_end.z)
+	var first_turn := _orientation(a, b, c)
+	var second_turn := _orientation(a, b, d)
+	var third_turn := _orientation(c, d, a)
+	var fourth_turn := _orientation(c, d, b)
+	return first_turn != second_turn and third_turn != fourth_turn
+
+static func _orientation(a: Vector2, b: Vector2, c: Vector2) -> int:
+	var cross := (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+	if absf(cross) < 0.0001:
+		return 0
+	return 1 if cross > 0.0 else -1

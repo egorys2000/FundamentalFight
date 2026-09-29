@@ -16,6 +16,7 @@ const CELL_SIZE := 2.35
 const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
 const LOOP_WIDTH := 0.09
+const WINDING_LIFT := 0.14
 const OBSTACLE_CLEARANCE := 0.92
 const GRID_SNAP_DISTANCE := 0.42
 const WATER_Y := 0.22
@@ -27,8 +28,6 @@ const STRAIN_STIFFNESS := 42.0
 const STRAIN_DAMPING := 10.5
 const STRAIN_SETTLE_SPEED := 0.018
 const STRAIN_SETTLE_ENERGY := 0.0008
-const MANUAL_MOVE_DURATION := 0.16
-const LASSO_MOVE_DURATION := 0.055
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -37,7 +36,8 @@ const CRAG_UNBREAKABLE := preload("res://assets/generated/crag_unbreakable.glb")
 const CACTUS := preload("res://assets/generated/cactus.glb")
 const PLAYER_ASSET := preload("res://assets/generated/player_placeholder.glb")
 
-var world_state := WorldState.new()
+var mechanics := MechanicsCore.new()
+var world_state: WorldState = mechanics.world_state
 var player_cell := Vector2i.ZERO
 var player: Node3D
 var camera: Camera3D
@@ -382,16 +382,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			_move_player(player_cell + direction)
 
 func _move_player(target: Vector2i) -> void:
-	var limit := (GRID_SIZE - 1) / 2
-	if abs(target.x) > limit or abs(target.y) > limit:
+	if not mechanics.try_move_to(target, GRID_SIZE):
+		if occupied.has(target):
+			status_label.text = "Blocked: %s at (%d, %d)" % [occupied[target].capitalize(), target.x, target.y]
+		else:
+			status_label.text = "Outside the playable manifold"
 		return
+	player_cell = mechanics.player_cell
 	if occupied.has(target):
 		status_label.text = "Blocked: %s at (%d, %d)" % [occupied[target].capitalize(), target.x, target.y]
 		return
-	player_cell = target
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	var move_duration := LASSO_MOVE_DURATION if _pulling_nontrivial_loop() else MANUAL_MOVE_DURATION
+	var move_duration := mechanics.movement_duration(_pulling_nontrivial_loop())
 	tween.tween_property(player, "position", _cell_to_world(player_cell) + Vector3(0.0, GROUND_Y, 0.0), move_duration)
 	_update_status()
 
@@ -463,7 +466,8 @@ func _finish_loop_drawing() -> void:
 		return
 	loop_caught_cells = LoopGeometry.enclosed_crags(loop_points, world_state, _cell_to_world)
 	loop_pulled = false
-	completed_loops.append(loop_points.duplicate())
+	mechanics.add_loop(loop_points)
+	completed_loops = mechanics.loops
 	_redraw_loop()
 	_update_status()
 	if not enable_loop_persistence:
@@ -498,10 +502,10 @@ func _point_inside_loop(point: Vector3) -> bool:
 func _pull_loop() -> void:
 	if completed_loops.is_empty():
 		return
-	loop_points = completed_loops.back().duplicate()
+	loop_points = mechanics.latest_loop()
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
-	var target := _build_tightened_loop(start, player_position)
+	var target := _build_tightened_loop(player_position)
 	var trivial := LoopGeometry.is_trivial(start, world_state, _cell_to_world)
 	pull_trivial = trivial
 	if trivial:
@@ -528,8 +532,8 @@ func _pull_loop() -> void:
 	_redraw_loop()
 	_update_status()
 
-func _build_tightened_loop(start: Array, player_position: Vector3) -> Array:
-	return LoopGeometry.tightened_loop(start, player_position, world_state, _cell_to_world, OBSTACLE_CLEARANCE, PULL_ITERATIONS, PULL_STEP)
+func _build_tightened_loop(player_position: Vector3) -> Array:
+	return mechanics.tightened_latest_loop(player_position, _cell_to_world, OBSTACLE_CLEARANCE, PULL_ITERATIONS, PULL_STEP)
 
 func _pulling_nontrivial_loop() -> bool:
 	return not pull_start.is_empty() and not pull_trivial
@@ -568,11 +572,13 @@ func _advance_strain_animation(delta: float) -> void:
 	strain_energy = _strain_energy(loop_points, pull_target)
 	if not completed_loops.is_empty():
 		completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
+		mechanics.loops[mechanics.loops.size() - 1] = loop_points.duplicate()
 	_redraw_loop()
 	if absf(1.0 - pull_progress) < STRAIN_SETTLE_SPEED and absf(pull_velocity) < STRAIN_SETTLE_SPEED and strain_energy < STRAIN_SETTLE_ENERGY:
 		loop_points = pull_target.duplicate()
 		if pull_trivial and not completed_loops.is_empty():
 			completed_loops.pop_back()
+			mechanics.remove_latest_loop()
 		elif not completed_loops.is_empty():
 			completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
 		pull_start.clear()
@@ -604,6 +610,7 @@ func _remove_loop() -> void:
 	if completed_loops.is_empty():
 		return
 	completed_loops.pop_back()
+	mechanics.remove_latest_loop()
 	loop_points.clear()
 	loop_caught_cells.clear()
 	loop_pulled = false
@@ -633,11 +640,24 @@ func _add_rope_visual(path: Array, closed: bool) -> void:
 		closed_path.append(point)
 	if closed and closed_path[0].distance_to(closed_path[closed_path.size() - 1]) > 0.01:
 		closed_path.append(closed_path[0])
+	closed_path = _visualize_winding(closed_path, closed)
 	var rope := MeshInstance3D.new()
 	rope.name = "RopeMesh"
 	rope.mesh = _build_rope_mesh(closed_path, closed)
 	rope.material_override = loop_material
 	loop_visual.add_child(rope)
+
+func _visualize_winding(path: Array[Vector3], closed: bool) -> Array[Vector3]:
+	if not LoopGeometry.has_self_intersection(path):
+		return path
+	var lifted: Array[Vector3] = []
+	var last_index := path.size() - 1 if closed else path.size()
+	for i in range(path.size()):
+		var point: Vector3 = path[i]
+		var progress := float(i) / float(maxi(last_index, 1))
+		point.y += WINDING_LIFT * sin(TAU * progress)
+		lifted.append(point)
+	return lifted
 
 func _build_rope_mesh(path: Array[Vector3], closed: bool) -> ArrayMesh:
 	var sides := 8

@@ -6,6 +6,7 @@ extends RefCounted
 # a tightened representative when every segment remains legal.
 
 const OBSTACLE_CLEARANCE := 0.92
+const LoopGeometryClass = preload("res://scripts/core/loop_geometry.gd")
 
 func test_segment_clearance() -> void:
 	var start := Vector3(-2.0, 0.16, 2.0)
@@ -31,6 +32,16 @@ func test_pull_target_remains_closed_at_player() -> void:
 	]
 	assert(loop[0] == player)
 	assert(loop[loop.size() - 1] == player)
+
+func test_repeated_winding_is_detected_for_visual_lift() -> void:
+	var repeated_winding := [
+		Vector3(0.0, 0.16, 0.0),
+		Vector3(2.0, 0.16, 2.0),
+		Vector3(0.0, 0.16, 2.0),
+		Vector3(2.0, 0.16, 0.0),
+		Vector3(0.0, 0.16, 0.0)
+	]
+	assert(LoopGeometryClass.has_self_intersection(repeated_winding))
 
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
 	var segment := Vector2(end.x - start.x, end.z - start.z)
