@@ -14,8 +14,8 @@ extends Node3D
 const GRID_SIZE := 15
 const CELL_SIZE := 2.35
 const GROUND_Y := -0.42
-const LOOP_HEIGHT := 0.16
-const LOOP_WIDTH := 0.09
+const LOOP_HEIGHT := 0.24
+const LOOP_WIDTH := 0.045
 const WINDING_LIFT := 0.14
 const ROPE_SAMPLE_SPACING := 0.34
 const ROPE_CONTACT_RADIUS := 1.02
@@ -85,11 +85,12 @@ func _ready() -> void:
 	loop_visual.name = "PersistentLoop"
 	add_child(loop_visual)
 	loop_material = StandardMaterial3D.new()
-	loop_material.albedo_color = Color("#f0d47a")
+	loop_material.albedo_color = Color("#7d183f")
 	loop_material.emission_enabled = true
-	loop_material.emission = Color("#a66b26")
-	loop_material.emission_energy_multiplier = 0.55
-	loop_material.roughness = 0.42
+	loop_material.emission = Color("#c22f63")
+	loop_material.emission_energy_multiplier = 0.28
+	loop_material.metallic = 0.12
+	loop_material.roughness = 0.3
 	_build_ui()
 
 func _process(delta: float) -> void:
@@ -757,6 +758,9 @@ func _advance_strain_animation(delta: float) -> void:
 		pull_progress = minf(pull_progress, 1.0)
 		loop_points = _interpolate_pull(pull_progress, pull_start, pull_target)
 	strain_energy = _strain_energy(loop_points, pull_target)
+	var tension := clampf(strain_energy / maxf(strain_peak_energy, 0.001), 0.0, 1.0)
+	loop_material.albedo_color = Color("#7d183f").lerp(Color("#bd2d5d"), tension)
+	loop_material.emission_energy_multiplier = 0.22 + tension * 0.38
 	if not completed_loops.is_empty():
 		completed_loops[completed_loops.size() - 1] = loop_points.duplicate()
 		mechanics.loops[mechanics.loops.size() - 1] = loop_points.duplicate()
