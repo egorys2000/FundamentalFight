@@ -30,10 +30,13 @@ const STRAIN_SETTLE_SPEED := 0.018
 const STRAIN_SETTLE_ENERGY := 0.0008
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
-const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
 const CRAG_BREAKABLE := preload("res://assets/generated/crag_breakable.glb")
 const CRAG_UNBREAKABLE := preload("res://assets/generated/crag_unbreakable.glb")
+const CRAG_BREAKABLE_SPIRE := preload("res://assets/generated/crag_breakable_spire.glb")
+const CRAG_UNBREAKABLE_SPIRE := preload("res://assets/generated/crag_unbreakable_spire.glb")
 const CACTUS := preload("res://assets/generated/cactus.glb")
+const CACTUS_TWIN := preload("res://assets/generated/cactus_twin.glb")
+const CACTUS_LOW := preload("res://assets/generated/cactus_low.glb")
 const PLAYER_ASSET := preload("res://assets/generated/player_placeholder.glb")
 
 var mechanics := MechanicsCore.new()
@@ -146,21 +149,21 @@ func _build_environment() -> void:
 
 	var foundation_material := StandardMaterial3D.new()
 	foundation_material.albedo_color = Color("#182b2c")
+	foundation_material.metallic = 0.45
 	foundation_material.roughness = 0.92
 	var foundation_mesh := BoxMesh.new()
-	foundation_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 0.8, 0.3, GRID_SIZE * CELL_SIZE + 0.8)
+	foundation_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 1.5, 0.55, GRID_SIZE * CELL_SIZE + 1.5)
 	var foundation := MeshInstance3D.new()
 	foundation.mesh = foundation_mesh
 	foundation.material_override = foundation_material
-	foundation.position.y = GROUND_Y - 0.28
+	foundation.position.y = GROUND_Y - 0.4
 	add_child(foundation)
 	_build_terrarium_frame()
 
 	var limit := (GRID_SIZE - 1) / 2
 	for x in range(-limit, limit + 1):
 		for z in range(-limit, limit + 1):
-			var tile_scene: PackedScene = GROUND_TILE_GRASS if (x + z) % 3 == 0 else GROUND_TILE
-			var tile := tile_scene.instantiate() as Node3D
+			var tile := GROUND_TILE.instantiate() as Node3D
 			tile.position = _cell_to_world(Vector2i(x, z)) + Vector3(0.0, GROUND_Y, 0.0)
 			tile.scale = Vector3.ONE * (CELL_SIZE / 2.0) * 0.91
 			add_child(tile)
@@ -182,12 +185,20 @@ func _build_terrarium_frame() -> void:
 	frame_material.roughness = 0.3
 	var glass_material := StandardMaterial3D.new()
 	glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass_material.albedo_color = Color(0.18, 0.62, 0.65, 0.055)
-	glass_material.metallic = 0.1
-	glass_material.roughness = 0.08
+	glass_material.albedo_color = Color(0.16, 0.70, 0.72, 0.11)
+	glass_material.metallic = 0.2
+	glass_material.roughness = 0.04
 	glass_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	glass_material.no_depth_test = true
+	var glass_edge_material := StandardMaterial3D.new()
+	glass_edge_material.albedo_color = Color("#67d1c5")
+	glass_edge_material.emission_enabled = true
+	glass_edge_material.emission = Color("#1d756f")
+	glass_edge_material.emission_energy_multiplier = 0.7
+	glass_edge_material.metallic = 0.35
+	glass_edge_material.roughness = 0.22
 	var extent := GRID_SIZE * CELL_SIZE * 0.5 + 0.35
-	var wall_height := 3.8
+	var wall_height := 4.6
 	var walls := [
 		{"position": Vector3(0.0, wall_height * 0.5, -extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
 		{"position": Vector3(0.0, wall_height * 0.5, extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
@@ -202,6 +213,24 @@ func _build_terrarium_frame() -> void:
 		glass.material_override = glass_material
 		glass.position = wall["position"]
 		add_child(glass)
+	var edge_mesh := BoxMesh.new()
+	edge_mesh.size = Vector3(extent * 2.0, 0.07, 0.07)
+	for y in [0.08, wall_height - 0.04]:
+		for z in [-extent, extent]:
+			var edge := MeshInstance3D.new()
+			edge.mesh = edge_mesh
+			edge.material_override = glass_edge_material
+			edge.position = Vector3(0.0, y, z)
+			add_child(edge)
+	var side_edge_mesh := BoxMesh.new()
+	side_edge_mesh.size = Vector3(0.07, 0.07, extent * 2.0)
+	for y in [0.08, wall_height - 0.04]:
+		for x in [-extent, extent]:
+			var edge := MeshInstance3D.new()
+			edge.mesh = side_edge_mesh
+			edge.material_override = glass_edge_material
+			edge.position = Vector3(x, y, 0.0)
+			add_child(edge)
 	for corner in [
 		Vector3(-extent, wall_height * 0.5, -extent),
 		Vector3(extent, wall_height * 0.5, -extent),
@@ -223,6 +252,20 @@ func _build_terrarium_frame() -> void:
 		cap.material_override = frame_material
 		cap.position = Vector3(0.0, wall_height, z)
 		add_child(cap)
+	var lid_material := StandardMaterial3D.new()
+	lid_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	lid_material.albedo_color = Color(0.20, 0.75, 0.72, 0.035)
+	lid_material.emission_enabled = true
+	lid_material.emission = Color("#164b4c")
+	lid_material.emission_energy_multiplier = 0.25
+	lid_material.no_depth_test = true
+	var lid_mesh := BoxMesh.new()
+	lid_mesh.size = Vector3(extent * 2.0, 0.035, extent * 2.0)
+	var lid := MeshInstance3D.new()
+	lid.mesh = lid_mesh
+	lid.material_override = lid_material
+	lid.position.y = wall_height
+	add_child(lid)
 
 func _build_water() -> void:
 	var shader := Shader.new()
@@ -257,10 +300,18 @@ func _build_obstacles() -> void:
 	for cell in occupied:
 		var kind: String = occupied[cell]
 		var asset: PackedScene = CRAG_BREAKABLE
-		if kind == "crag_unbreakable":
+		if kind == "crag_breakable_spire":
+			asset = CRAG_BREAKABLE_SPIRE
+		elif kind == "crag_unbreakable":
 			asset = CRAG_UNBREAKABLE
+		elif kind == "crag_unbreakable_spire":
+			asset = CRAG_UNBREAKABLE_SPIRE
 		elif kind == "cactus":
 			asset = CACTUS
+		elif kind == "cactus_twin":
+			asset = CACTUS_TWIN
+		elif kind == "cactus_low":
+			asset = CACTUS_LOW
 		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
 		root.position.y = GROUND_Y
