@@ -11,21 +11,24 @@ const CACTUS_LOW := "cactus_low"
 
 var player_cell := Vector2i.ZERO
 var occupied := {
-	Vector2i(-3, -2): BREAKABLE_SPIRE,
-	Vector2i(0, 2): UNBREAKABLE_CRAG,
-	Vector2i(3, -2): BREAKABLE_CRAG,
-	Vector2i(-2, 2): UNBREAKABLE_SPIRE,
-	Vector2i(2, 2): BREAKABLE_CRAG,
-	Vector2i(3, 0): CACTUS_TWIN,
-	Vector2i(-3, 0): CACTUS_LOW
+	Vector2i(-6, -3): BREAKABLE_CRAG,
+	Vector2i(-2, 3): UNBREAKABLE_SPIRE,
+	Vector2i(3, -3): BREAKABLE_SPIRE,
+	Vector2i(6, 2): UNBREAKABLE_CRAG,
+	Vector2i(1, 2): BREAKABLE_CRAG,
+	Vector2i(-4, 0): CACTUS_TWIN,
+	Vector2i(5, -1): CACTUS_LOW,
+	Vector2i(-1, -2): CACTUS
 }
 
 var water_cells := [
-	Vector2i(-3, 1),
-	Vector2i(-2, 1),
+	Vector2i(-6, 1),
+	Vector2i(-5, 1),
+	Vector2i(-4, 1),
 	Vector2i(2, -1),
-	Vector2i(2, 0),
-	Vector2i(-1, -3),
+	Vector2i(3, -1),
+	Vector2i(4, -1),
+	Vector2i(-1, 3),
 ]
 
 func is_obstacle(cell: Vector2i) -> bool:

@@ -24,6 +24,14 @@ func try_move_to(target: Vector2i, grid_size: int = DEFAULT_GRID_SIZE) -> bool:
 	player_cell = target
 	return true
 
+func try_move_to_rect(target: Vector2i, width: int, height: int) -> bool:
+	if abs(target.x) > (width - 1) / 2 or abs(target.y) > (height - 1) / 2:
+		return false
+	if world_state.is_obstacle(target):
+		return false
+	player_cell = target
+	return true
+
 func movement_duration(pulling_nontrivial: bool) -> float:
 	return LASSO_MOVE_DURATION if pulling_nontrivial else MANUAL_MOVE_DURATION
 

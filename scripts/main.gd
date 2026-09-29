@@ -11,7 +11,8 @@ extends Node3D
 @export var enable_cactus_cutting := true
 @export_range(1, 8, 1) var max_strings_per_player := 3
 
-const GRID_SIZE := 15
+const GRID_WIDTH := 17
+const GRID_HEIGHT := 11
 const CELL_SIZE := 2.35
 const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.24
@@ -66,6 +67,7 @@ var scene_built := false
 var drawing_loop := false
 var draw_points: Array[Vector3] = []
 var draw_origin := Vector3.ZERO
+var variant_rng := RandomNumberGenerator.new()
 var occupied: Dictionary:
 	get:
 		return world_state.occupied
@@ -77,6 +79,7 @@ func _ready() -> void:
 	if scene_built:
 		return
 	scene_built = true
+	variant_rng.seed = 24091990
 	_build_environment()
 	_build_water()
 	_build_obstacles()
@@ -157,7 +160,7 @@ func _build_environment() -> void:
 	foundation_material.metallic = 0.45
 	foundation_material.roughness = 0.92
 	var foundation_mesh := BoxMesh.new()
-	foundation_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 1.5, 0.55, GRID_SIZE * CELL_SIZE + 1.5)
+	foundation_mesh.size = Vector3(GRID_WIDTH * CELL_SIZE + 1.5, 0.55, GRID_HEIGHT * CELL_SIZE + 1.5)
 	var foundation := MeshInstance3D.new()
 	foundation.mesh = foundation_mesh
 	foundation.material_override = foundation_material
@@ -168,7 +171,7 @@ func _build_environment() -> void:
 	stand_material.metallic = 0.28
 	stand_material.roughness = 0.64
 	var stand_mesh := BoxMesh.new()
-	stand_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 2.6, 0.9, GRID_SIZE * CELL_SIZE + 2.6)
+	stand_mesh.size = Vector3(GRID_WIDTH * CELL_SIZE + 2.6, 0.9, GRID_HEIGHT * CELL_SIZE + 2.6)
 	var stand := MeshInstance3D.new()
 	stand.mesh = stand_mesh
 	stand.material_override = stand_material
@@ -177,12 +180,14 @@ func _build_environment() -> void:
 	_build_terrarium_frame()
 	_build_desk_and_lamps()
 
-	var limit := (GRID_SIZE - 1) / 2
-	for x in range(-limit, limit + 1):
-		for z in range(-limit, limit + 1):
+	var x_limit := (GRID_WIDTH - 1) / 2
+	var z_limit := (GRID_HEIGHT - 1) / 2
+	for x in range(-x_limit, x_limit + 1):
+		for z in range(-z_limit, z_limit + 1):
 			var tile := GROUND_TILE.instantiate() as Node3D
 			tile.position = _cell_to_world(Vector2i(x, z)) + Vector3(0.0, GROUND_Y, 0.0)
 			tile.scale = Vector3.ONE * (CELL_SIZE / 2.0) * 0.91
+			tile.rotation_degrees.y = 90.0 if variant_rng.randf() > 0.5 else 0.0
 			add_child(tile)
 
 	camera = Camera3D.new()
@@ -317,13 +322,14 @@ func _build_terrarium_frame() -> void:
 	glass_edge_material.emission_energy_multiplier = 0.7
 	glass_edge_material.metallic = 0.35
 	glass_edge_material.roughness = 0.22
-	var extent := GRID_SIZE * CELL_SIZE * 0.5 + 0.35
+	var extent_x := GRID_WIDTH * CELL_SIZE * 0.5 + 0.35
+	var extent_z := GRID_HEIGHT * CELL_SIZE * 0.5 + 0.35
 	var wall_height := 4.6
 	var walls := [
-		{"position": Vector3(0.0, wall_height * 0.5, -extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
-		{"position": Vector3(0.0, wall_height * 0.5, extent), "size": Vector3(extent * 2.0, wall_height, 0.035)},
-		{"position": Vector3(-extent, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent * 2.0)},
-		{"position": Vector3(extent, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent * 2.0)},
+		{"position": Vector3(0.0, wall_height * 0.5, -extent_z), "size": Vector3(extent_x * 2.0, wall_height, 0.035)},
+		{"position": Vector3(0.0, wall_height * 0.5, extent_z), "size": Vector3(extent_x * 2.0, wall_height, 0.035)},
+		{"position": Vector3(-extent_x, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent_z * 2.0)},
+		{"position": Vector3(extent_x, wall_height * 0.5, 0.0), "size": Vector3(0.035, wall_height, extent_z * 2.0)},
 	]
 	for wall in walls:
 		var glass_mesh := BoxMesh.new()
@@ -334,28 +340,28 @@ func _build_terrarium_frame() -> void:
 		glass.position = wall["position"]
 		add_child(glass)
 	var edge_mesh := BoxMesh.new()
-	edge_mesh.size = Vector3(extent * 2.0, 0.07, 0.07)
+	edge_mesh.size = Vector3(extent_x * 2.0, 0.07, 0.07)
 	for y in [0.08, wall_height - 0.04]:
-		for z in [-extent, extent]:
+		for z in [-extent_z, extent_z]:
 			var edge := MeshInstance3D.new()
 			edge.mesh = edge_mesh
 			edge.material_override = glass_edge_material
 			edge.position = Vector3(0.0, y, z)
 			add_child(edge)
 	var side_edge_mesh := BoxMesh.new()
-	side_edge_mesh.size = Vector3(0.07, 0.07, extent * 2.0)
+	side_edge_mesh.size = Vector3(0.07, 0.07, extent_z * 2.0)
 	for y in [0.08, wall_height - 0.04]:
-		for x in [-extent, extent]:
+		for x in [-extent_x, extent_x]:
 			var edge := MeshInstance3D.new()
 			edge.mesh = side_edge_mesh
 			edge.material_override = glass_edge_material
 			edge.position = Vector3(x, y, 0.0)
 			add_child(edge)
 	for corner in [
-		Vector3(-extent, wall_height * 0.5, -extent),
-		Vector3(extent, wall_height * 0.5, -extent),
-		Vector3(-extent, wall_height * 0.5, extent),
-		Vector3(extent, wall_height * 0.5, extent),
+		Vector3(-extent_x, wall_height * 0.5, -extent_z),
+		Vector3(extent_x, wall_height * 0.5, -extent_z),
+		Vector3(-extent_x, wall_height * 0.5, extent_z),
+		Vector3(extent_x, wall_height * 0.5, extent_z),
 	]:
 		var post_mesh := BoxMesh.new()
 		post_mesh.size = Vector3(0.16, wall_height, 0.16)
@@ -365,8 +371,8 @@ func _build_terrarium_frame() -> void:
 		post.position = corner
 		add_child(post)
 	var cap_mesh := BoxMesh.new()
-	cap_mesh.size = Vector3(extent * 2.0 + 0.3, 0.12, 0.12)
-	for z in [-extent, extent]:
+	cap_mesh.size = Vector3(extent_x * 2.0 + 0.3, 0.12, 0.12)
+	for z in [-extent_z, extent_z]:
 		var cap := MeshInstance3D.new()
 		cap.mesh = cap_mesh
 		cap.material_override = frame_material
@@ -380,7 +386,7 @@ func _build_terrarium_frame() -> void:
 	lid_material.emission_energy_multiplier = 0.25
 	lid_material.no_depth_test = true
 	var lid_mesh := BoxMesh.new()
-	lid_mesh.size = Vector3(extent * 2.0, 0.035, extent * 2.0)
+	lid_mesh.size = Vector3(extent_x * 2.0, 0.035, extent_z * 2.0)
 	var lid := MeshInstance3D.new()
 	lid.mesh = lid_mesh
 	lid.material_override = lid_material
@@ -420,22 +426,18 @@ func _build_obstacles() -> void:
 	for cell in occupied:
 		var kind: String = occupied[cell]
 		var asset: PackedScene = CRAG_BREAKABLE
-		if kind == "crag_breakable_spire":
-			asset = CRAG_BREAKABLE_SPIRE
-		elif kind == "crag_unbreakable":
-			asset = CRAG_UNBREAKABLE
-		elif kind == "crag_unbreakable_spire":
-			asset = CRAG_UNBREAKABLE_SPIRE
-		elif kind == "cactus":
-			asset = CACTUS
-		elif kind == "cactus_twin":
-			asset = CACTUS_TWIN
-		elif kind == "cactus_low":
-			asset = CACTUS_LOW
+		if kind.begins_with("crag_unbreakable"):
+			asset = CRAG_UNBREAKABLE_SPIRE if variant_rng.randf() > 0.5 else CRAG_UNBREAKABLE
+		elif kind.begins_with("crag"):
+			asset = CRAG_BREAKABLE_SPIRE if variant_rng.randf() > 0.48 else CRAG_BREAKABLE
+		elif kind.begins_with("cactus"):
+			var cactus_variant := variant_rng.randi_range(0, 2)
+			asset = [CACTUS, CACTUS_TWIN, CACTUS_LOW][cactus_variant]
 		var root := asset.instantiate() as Node3D
 		root.position = _cell_to_world(cell)
 		root.position.y = GROUND_Y
 		root.scale = CRAG_SCALE if kind.begins_with("crag") else CACTUS_SCALE
+		root.rotation_degrees.y = float(variant_rng.randi_range(0, 3) * 90)
 		add_child(root)
 
 func _build_player() -> void:
@@ -553,7 +555,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_move_player(player_cell + direction)
 
 func _move_player(target: Vector2i) -> void:
-	if not mechanics.try_move_to(target, GRID_SIZE):
+	if not mechanics.try_move_to_rect(target, GRID_WIDTH, GRID_HEIGHT):
 		if occupied.has(target):
 			status_label.text = "Blocked: %s at (%d, %d)" % [occupied[target].capitalize(), target.x, target.y]
 		else:
@@ -571,7 +573,7 @@ func _update_status() -> void:
 		var loop_state := "none"
 		if not completed_loops.is_empty() or drawing_loop:
 			loop_state = "tight" if loop_pulled else "placed"
-		status_label.text = "CELL        %02d, %02d\nCRAGS       05\nCACTUS      01\nLOOPS       %d\nLOOP        %s\nSTRAIN      %0.2f" % [player_cell.x, player_cell.y, completed_loops.size(), loop_state.to_upper(), strain_energy]
+		status_label.text = "CELL        %02d, %02d\nCRAGS       %02d\nCACTUS      %02d\nLOOPS       %d\nLOOP        %s\nSTRAIN      %0.2f" % [player_cell.x, player_cell.y, world_state.crag_count(), world_state.cactus_count(), completed_loops.size(), loop_state.to_upper(), strain_energy]
 
 func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
@@ -607,7 +609,7 @@ func _append_draw_point(screen_position: Vector2) -> void:
 		status_label.text = "No legal lasso path to that anchor"
 		return
 	var current_cell := Vector2i(roundi(draw_points.back().x / CELL_SIZE), roundi(draw_points.back().z / CELL_SIZE))
-	var route := LoopGeometry.grid_route(current_cell, target_cell, world_state, _cell_to_world, GRID_SIZE)
+	var route := LoopGeometry.grid_route(current_cell, target_cell, world_state, _cell_to_world, maxi(GRID_WIDTH, GRID_HEIGHT))
 	if route.is_empty():
 		status_label.text = "No legal lasso path to that anchor"
 		return
@@ -619,11 +621,12 @@ func _append_draw_point(screen_position: Vector2) -> void:
 	_redraw_loop()
 
 func _nearest_free_anchor(target: Vector2i) -> Vector2i:
-	var limit := (GRID_SIZE - 1) / 2
+	var x_limit := (GRID_WIDTH - 1) / 2
+	var z_limit := (GRID_HEIGHT - 1) / 2
 	var best := Vector2i(99999, 99999)
 	var best_distance := INF
-	for x in range(-limit, limit + 1):
-		for z in range(-limit, limit + 1):
+	for x in range(-x_limit, x_limit + 1):
+		for z in range(-z_limit, z_limit + 1):
 			var candidate := Vector2i(x, z)
 			if world_state.is_obstacle(candidate):
 				continue
@@ -692,10 +695,11 @@ func _snap_loop_point(point: Vector3) -> Vector3:
 	return point
 
 func _is_lasso_anchor_allowed(point: Vector3) -> bool:
-	var limit := (GRID_SIZE - 1) / 2
+	var x_limit := (GRID_WIDTH - 1) / 2
+	var z_limit := (GRID_HEIGHT - 1) / 2
 	var cell_x := roundi(point.x / CELL_SIZE)
 	var cell_z := roundi(point.z / CELL_SIZE)
-	return abs(cell_x) <= limit and abs(cell_z) <= limit
+	return abs(cell_x) <= x_limit and abs(cell_z) <= z_limit
 
 func _loop_points_within_level(points: Array) -> bool:
 	for point in points:
