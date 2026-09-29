@@ -271,35 +271,44 @@ func _build_player() -> void:
 func _build_ui() -> void:
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
-	var top_bar := _panel(Vector2(24, 20), Vector2(520, 104), Color("#0b1820e8"), Color("#28424a"))
+	var top_bar := _panel(Vector2(28, 24), Vector2(300, 72), Color("#08151be8"), Color("#31545a"))
 	canvas.add_child(top_bar)
-	var eyebrow := _label("FIELD STUDY  /  01", 12, Color("#69b8b2"))
-	eyebrow.position = Vector2(20, 14)
+	var eyebrow := _label("FIELD STUDY  /  01", 11, Color("#63c0b6"))
+	eyebrow.position = Vector2(18, 12)
 	top_bar.add_child(eyebrow)
-	var title := _label("FUNDAMENTAL FIGHT", 25, Color("#f0c879"))
-	title.position = Vector2(18, 32)
+	var title := _label("FUNDAMENTAL FIGHT", 20, Color("#f0c879"))
+	title.position = Vector2(16, 33)
 	top_bar.add_child(title)
-	var subtitle := _label("TOPOLOGICAL LASSO SANDBOX", 12, Color("#9bb3b4"))
-	subtitle.position = Vector2(20, 73)
-	top_bar.add_child(subtitle)
 
-	var objective := _panel(Vector2(24, 138), Vector2(222, 68), Color("#10232ae8"), Color("#28505a"))
-	canvas.add_child(objective)
-	var objective_title := _label("CURRENT OBJECTIVE", 11, Color("#69b8b2"))
-	objective_title.position = Vector2(16, 10)
-	objective.add_child(objective_title)
-	var objective_text := _label("Explore the empty map", 15, Color("#e3e9d8"))
-	objective_text.position = Vector2(16, 32)
-	objective.add_child(objective_text)
-
-	var telemetry := _panel(Vector2(270, 138), Vector2(364, 68), Color("#0b1820e8"), Color("#28424a"))
+	var telemetry := _panel(Vector2(28, 116), Vector2(258, 252), Color("#08151be8"), Color("#31545a"))
 	canvas.add_child(telemetry)
+	var telemetry_header := _label("SPECIMEN TELEMETRY", 11, Color("#63c0b6"))
+	telemetry_header.position = Vector2(18, 16)
+	telemetry.add_child(telemetry_header)
+	var rule := ColorRect.new()
+	rule.position = Vector2(18, 39)
+	rule.size = Vector2(222, 1)
+	rule.color = Color("#31545a")
+	telemetry.add_child(rule)
 	status_label = Label.new()
-	status_label.position = Vector2(16, 18)
-	status_label.add_theme_font_size_override("font_size", 14)
+	status_label.position = Vector2(18, 55)
+	status_label.add_theme_font_size_override("font_size", 15)
 	status_label.add_theme_color_override("font_color", Color("#d8e2d5"))
+	status_label.add_theme_constant_override("line_spacing", 9)
 	telemetry.add_child(status_label)
 
+	var objective := _panel(Vector2(28, 388), Vector2(258, 90), Color("#0c2024e8"), Color("#3d756e"))
+	canvas.add_child(objective)
+	var objective_code := _label("TASK  /  A-01", 10, Color("#63c0b6"))
+	objective_code.position = Vector2(18, 14)
+	objective.add_child(objective_code)
+	var objective_text := _label("Map the empty\nspecimen field", 17, Color("#e3e9d8"))
+	objective_text.position = Vector2(18, 34)
+	objective.add_child(objective_text)
+
+	var footer := _label("RIFTGARDEN OBSERVATORY", 10, Color("#527a7d"))
+	footer.position = Vector2(30, 500)
+	canvas.add_child(footer)
 	_update_status()
 
 func _panel(position: Vector2, size: Vector2, fill: Color, border: Color) -> Panel:
@@ -384,7 +393,7 @@ func _update_status() -> void:
 		var loop_state := "none"
 		if not loop_points.is_empty():
 			loop_state = "tight" if loop_pulled else "placed"
-		status_label.text = "CELL  %02d, %02d     CRAGS  5     CACTUS  1\nLOOP  %s     STRAIN  %0.2f" % [player_cell.x, player_cell.y, loop_state.to_upper(), strain_energy]
+		status_label.text = "CELL        %02d, %02d\nCRAGS       05\nCACTUS      01\nLOOP        %s\nSTRAIN      %0.2f" % [player_cell.x, player_cell.y, loop_state.to_upper(), strain_energy]
 
 func _cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0.0, cell.y * CELL_SIZE)
