@@ -19,10 +19,7 @@ func can_move_to(target: Vector2i, grid_size: int = DEFAULT_GRID_SIZE) -> bool:
 	return not world_state.is_obstacle(target)
 
 func try_move_to(target: Vector2i, grid_size: int = DEFAULT_GRID_SIZE) -> bool:
-	if not can_move_to(target, grid_size):
-		return false
-	player_cell = target
-	return true
+	return try_move_to_rect(target, grid_size, grid_size)
 
 func try_move_to_rect(target: Vector2i, width: int, height: int) -> bool:
 	if abs(target.x) > (width - 1) / 2 or abs(target.y) > (height - 1) / 2:
@@ -30,6 +27,7 @@ func try_move_to_rect(target: Vector2i, width: int, height: int) -> bool:
 	if world_state.is_obstacle(target):
 		return false
 	player_cell = target
+	world_state.player_cell = target
 	return true
 
 func movement_duration(pulling_nontrivial: bool) -> float:

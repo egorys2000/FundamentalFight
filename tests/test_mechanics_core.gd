@@ -16,6 +16,7 @@ func test_move_to_open_cell_is_accepted() -> void:
 	before_each()
 	assert(core.try_move_to(Vector2i(2, 0)))
 	assert(core.player_cell == Vector2i(2, 0))
+	assert(core.world_state.player_cell == Vector2i(2, 0))
 
 func test_move_into_puncture_is_rejected_without_state_change() -> void:
 	before_each()

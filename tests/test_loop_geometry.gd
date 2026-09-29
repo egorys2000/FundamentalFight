@@ -51,12 +51,25 @@ func test_grid_route_avoids_obstacle_cells() -> void:
 		Vector2i(1, 0),
 		state,
 		Callable(self, "_cell_to_world"),
+		5,
 		5
 	)
 	assert(not route.is_empty())
 	assert(route.size() > 3)
 	for point in route:
 		assert(point != Vector3.ZERO)
+
+func test_grid_route_respects_rectangular_height() -> void:
+	var state := WorldState.new()
+	var route := LoopGeometryClass.grid_route(
+		Vector2i(0, -2),
+		Vector2i(0, 2),
+		state,
+		Callable(self, "_cell_to_world"),
+		7,
+		3
+	)
+	assert(route.is_empty())
 
 func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
 	var segment := Vector2(end.x - start.x, end.z - start.z)

@@ -38,11 +38,12 @@ static func encloses_puncture(loop: Array, state: WorldState, cell_to_world: Cal
 static func is_trivial(loop: Array, state: WorldState, cell_to_world: Callable) -> bool:
 	return not encloses_puncture(loop, state, cell_to_world)
 
-static func grid_route(start: Vector2i, target: Vector2i, state: WorldState, cell_to_world: Callable, grid_size: int) -> Array[Vector3]:
-	var limit := (grid_size - 1) / 2
-	if abs(start.x) > limit or abs(start.y) > limit or abs(target.x) > limit:
+static func grid_route(start: Vector2i, target: Vector2i, state: WorldState, cell_to_world: Callable, grid_width: int, grid_height: int) -> Array[Vector3]:
+	var x_limit := (grid_width - 1) / 2
+	var z_limit := (grid_height - 1) / 2
+	if abs(start.x) > x_limit or abs(start.y) > z_limit or abs(target.x) > x_limit:
 		return []
-	if abs(target.y) > limit or state.is_obstacle(target):
+	if abs(target.y) > z_limit or state.is_obstacle(target):
 		return []
 	var frontier: Array[Vector2i] = [start]
 	var parent: Dictionary = {start: start}
@@ -53,7 +54,7 @@ static func grid_route(start: Vector2i, target: Vector2i, state: WorldState, cel
 			break
 		for direction in directions:
 			var next := current + direction
-			if abs(next.x) > limit or abs(next.y) > limit:
+			if abs(next.x) > x_limit or abs(next.y) > z_limit:
 				continue
 			if state.is_obstacle(next) or parent.has(next):
 				continue
