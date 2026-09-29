@@ -17,6 +17,8 @@ const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
 const LOOP_WIDTH := 0.09
 const WINDING_LIFT := 0.14
+const ROPE_SAMPLE_SPACING := 0.34
+const ROPE_CONTACT_RADIUS := 1.02
 const OBSTACLE_CLEARANCE := 0.92
 const GRID_SNAP_DISTANCE := 0.42
 const WATER_Y := 0.22
@@ -788,17 +790,52 @@ func _redraw_loop() -> void:
 func _add_rope_visual(path: Array, closed: bool) -> void:
 	if path.size() < 2:
 		return
-	var closed_path: Array[Vector3] = []
-	for point in path:
-		closed_path.append(point)
+	var closed_path: Array[Vector3] = _resample_visual_path(path, closed)
 	if closed and closed_path[0].distance_to(closed_path[closed_path.size() - 1]) > 0.01:
 		closed_path.append(closed_path[0])
+	closed_path = _press_visual_rope_to_crags(closed_path, closed)
 	closed_path = _visualize_winding(closed_path, closed)
 	var rope := MeshInstance3D.new()
 	rope.name = "RopeMesh"
 	rope.mesh = _build_rope_mesh(closed_path, closed)
 	rope.material_override = loop_material
 	loop_visual.add_child(rope)
+
+func _resample_visual_path(path: Array, closed: bool) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for index in range(path.size() - 1):
+		var start: Vector3 = path[index]
+		var end: Vector3 = path[index + 1]
+		var segment_length := start.distance_to(end)
+		var steps := maxi(1, ceili(segment_length / ROPE_SAMPLE_SPACING))
+		for step in range(steps):
+			if index > 0 and step == 0:
+				continue
+			result.append(start.lerp(end, float(step) / float(steps)))
+	result.append(path[path.size() - 1])
+	if closed and result.size() > 1 and result[0].distance_to(result[result.size() - 1]) < 0.01:
+		result[result.size() - 1] = result[0]
+	return result
+
+func _press_visual_rope_to_crags(path: Array[Vector3], closed: bool) -> Array[Vector3]:
+	if not closed:
+		return path
+	var result: Array[Vector3] = path.duplicate()
+	for index in range(result.size() - 1):
+		var point: Vector3 = result[index]
+		for cell in occupied:
+			if not world_state.is_crag(cell):
+				continue
+			var obstacle := _cell_to_world(cell)
+			var offset := Vector2(point.x - obstacle.x, point.z - obstacle.z)
+			var distance := offset.length()
+			if distance > 0.001 and distance < ROPE_CONTACT_RADIUS + 0.22:
+				var contact := offset.normalized() * ROPE_CONTACT_RADIUS
+				point.x = obstacle.x + contact.x
+				point.z = obstacle.z + contact.y
+		result[index] = point
+	result[result.size() - 1] = result[0]
+	return result
 
 func _visualize_winding(path: Array[Vector3], closed: bool) -> Array[Vector3]:
 	if not LoopGeometry.has_self_intersection(path):
@@ -813,7 +850,7 @@ func _visualize_winding(path: Array[Vector3], closed: bool) -> Array[Vector3]:
 	return lifted
 
 func _build_rope_mesh(path: Array[Vector3], closed: bool) -> ArrayMesh:
-	var sides := 8
+	var sides := 12
 	var rings := path.size() - 1 if closed else path.size()
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -834,7 +871,9 @@ func _build_rope_mesh(path: Array[Vector3], closed: bool) -> ArrayMesh:
 		for side_index in range(sides):
 			var angle := TAU * float(side_index) / float(sides)
 			var radial := side * cos(angle) + Vector3.UP * sin(angle)
-			vertices.append(point + radial * radius)
+			var braid_phase := float(ring_index) * 0.9 + float(side_index) * 1.45
+			var braid_radius := radius * (1.0 + 0.055 * sin(braid_phase))
+			vertices.append(point + radial * braid_radius)
 			normals.append(radial)
 			uvs.append(Vector2(float(ring_index) / float(rings), float(side_index) / float(sides)))
 	var link_count := rings if closed else rings - 1
