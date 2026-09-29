@@ -434,6 +434,12 @@ func _finish_loop_drawing() -> void:
 	draw_points.append(player_position)
 	loop_points = LoopGeometry.simplify_path(draw_points, CELL_SIZE * 0.12)
 	draw_points.clear()
+	if enable_obstacle_clearance and not LoopGeometry.segments_clear(loop_points, world_state, _cell_to_world, OBSTACLE_CLEARANCE):
+		loop_points.clear()
+		loop_caught_cells.clear()
+		_redraw_loop()
+		status_label.text = "Loop rejected: the drawn rope crossed a rock or cactus"
+		return
 	loop_caught_cells = LoopGeometry.enclosed_crags(loop_points, world_state, _cell_to_world)
 	loop_pulled = false
 	_redraw_loop()
@@ -479,7 +485,7 @@ func _pull_loop() -> void:
 	var target := _build_tightened_loop(start, player_position)
 	if target.size() != start.size():
 		loop_pulled = false
-		status_label.text = "Pull blocked: no canonical tightened loop"
+		status_label.text = "Pull blocked: the current rope crosses an obstacle"
 		return
 	if enable_obstacle_clearance and not _loop_segments_clear(target):
 		loop_pulled = false

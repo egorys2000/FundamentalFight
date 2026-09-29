@@ -32,6 +32,8 @@ static func enclosed_crags(loop: Array, state: WorldState, cell_to_world: Callab
 static func tightened_loop(start: Array, player_position: Vector3, state: WorldState, cell_to_world: Callable, clearance: float, iterations: int, step: float) -> Array:
 	if start.size() < 4:
 		return []
+	if not segments_clear(start, state, cell_to_world, clearance):
+		return []
 	var current: Array[Vector3] = []
 	for point in start:
 		current.append(point)
@@ -65,7 +67,9 @@ static func tightened_loop(start: Array, player_position: Vector3, state: WorldS
 				break
 			current = partial
 			center = _loop_center(current)
-	return current if segments_clear(current, state, cell_to_world, clearance) else []
+	# A legal representative is already a valid tightened result when no
+	# inward relaxation can be made without changing its obstacle routing.
+	return current
 
 static func segments_clear(points: Array, state: WorldState, cell_to_world: Callable, clearance: float) -> bool:
 	if points.size() < 2:
