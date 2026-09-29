@@ -213,22 +213,21 @@ def make_crag(name, stone, shadow, highlight, unbreakable=False, variant=0):
     # a deliberate split summit. Layer widths change in long geological
     # rhythms rather than repeating identical centered boxes.
     strata = [
-        (0, 8, 25, 21, -2, 1),
-        (8, 15, 23, 19, -1, 1),
-        (15, 23, 20, 17, 1, 0),
-        (23, 31, 17, 15, 2, -1),
-        (31, 40, 14, 13, 3, -1),
-        (40, 49, 11, 11, 2, 0),
-        (49, 57, 8, 9, 0, 1),
-        (57, 64, 6, 7, -2, 1),
-        (64, 69, 4, 5, -3, 0),
+        (0, 11, 25, 21, -2, 1),
+        (11, 17, 22, 18, -1, 1),
+        (17, 28, 19, 16, 1, 0),
+        (28, 35, 16, 14, 2, -1),
+        (35, 47, 13, 12, 3, -1),
+        (47, 53, 10, 10, 2, 0),
+        (53, 63, 7, 8, 0, 1),
+        (63, 69, 4, 5, -2, 1),
     ]
     if variant == 1:
         strata = [(y, h, max(3, rx + 2), max(3, rz - 2), ox + (y // 10), oz) for y, h, rx, rz, ox, oz in strata]
     for index, band in enumerate(strata):
         y0, y1, rx, rz, ox, oz = band
         for y in range(y0, y1):
-            inset = max(0, (y - y0) // 3)
+            inset = max(0, (y - y0) // 4)
             local_rx = max(3, rx - inset)
             local_rz = max(3, rz - inset)
             for x in range(ox - local_rx, ox + local_rx + 1):
@@ -236,7 +235,7 @@ def make_crag(name, stone, shadow, highlight, unbreakable=False, variant=0):
                     contour = (abs(x - ox) / local_rx) ** 1.7 + (abs(z - oz) / local_rz) ** 1.7
                     if contour <= 1.0:
                         mat = shadow if index == 0 and y < 3 else stone
-                        if y == y0 and index > 0 and contour > 0.72:
+                        if y == y0 and index > 0 and contour > 0.80:
                             mat = highlight
                         model.set(x, y, z, mat)
     # Secondary forms: structural buttresses explain the mountain's mass and
@@ -331,22 +330,23 @@ def configure_scene():
 
 
 def make_preview(roots, edge, ground):
-    positions = [(-7.0, 1.8, 0.0), (-2.0, 1.8, 0.0), (-5.0, -2.5, 0.0),
-                 (0.0, -2.5, 0.0), (5.2, 0.8, 0.0), (4.0, -3.0, 0.0)]
+    positions = [(-12.0, -9.0, 0.0), (0.0, -9.0, 0.0), (12.0, -9.0, 0.0),
+                 (-12.0, 0.0, 0.0), (0.0, 0.0, 0.0), (12.0, 0.0, 0.0),
+                 (-12.0, 9.0, 0.0), (0.0, 9.0, 0.0), (12.0, 9.0, 0.0)]
     for root, position in zip(roots, positions):
         root.location = position
     plinth = VoxelModel("PreviewPlinth")
-    plinth.box(-36, -1, -22, 72, 1, 44, edge)
-    plinth.box(-35, 0, -21, 70, 1, 42, ground)
+    plinth.box(-42, -1, -30, 84, 1, 60, edge)
+    plinth.box(-41, 0, -29, 82, 1, 58, ground)
     plinth.create()
     camera_data = bpy.data.cameras.new("Preview Camera")
     camera = bpy.data.objects.new("Preview Camera", camera_data)
     bpy.context.collection.objects.link(camera)
     # Look from logical negative-Z so the hero's face/visor is readable.
-    camera.location = (14.0, -18.0, 15.0)
+    camera.location = (22.0, -28.0, 24.0)
     camera.rotation_euler = (Vector((0.0, 0.0, 3.0)) - camera.location).to_track_quat("-Z", "Y").to_euler()
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = 22.0
+    camera.data.ortho_scale = 34.0
     bpy.context.scene.camera = camera
     for location, energy, color, size in [
         ((-4.0, 8.0, 5.0), 1000.0, (1.0, 0.72, 0.46), 5.0),

@@ -23,3 +23,13 @@ Generate and preview the kit with:
 ```text
 blender -b --python tools/blender/generate_voxel_assets.py
 ```
+
+The generated obstacle family contains explicit, stable variants:
+
+- `crag_breakable.glb` and `crag_breakable_spire.glb`
+- `crag_unbreakable.glb` and `crag_unbreakable_spire.glb`
+- `cactus.glb`, `cactus_twin.glb`, and `cactus_low.glb`
+
+World-state IDs select these assets directly at runtime; visual rotation is
+deterministic presentation only and does not change the gameplay obstacle
+type.

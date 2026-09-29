@@ -53,7 +53,7 @@ static func grid_route(start: Vector2i, target: Vector2i, state: WorldState, cel
 		if current == target:
 			break
 		for direction in directions:
-			var next := current + direction
+			var next: Vector2i = current + direction
 			if abs(next.x) > x_limit or abs(next.y) > z_limit:
 				continue
 			if state.is_obstacle(next) or parent.has(next):
