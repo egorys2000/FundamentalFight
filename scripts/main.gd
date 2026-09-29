@@ -329,15 +329,15 @@ func _pull_loop() -> void:
 		center = _cell_to_world(player_cell)
 	else:
 		center /= loop_caught_cells.size()
-	var span := CELL_SIZE * 2.5
-	var target := [
-		center + Vector3(-span, LOOP_HEIGHT, -CELL_SIZE * 1.1),
-		center + Vector3(span, LOOP_HEIGHT, -CELL_SIZE * 1.1),
-		center + Vector3(span, LOOP_HEIGHT, CELL_SIZE * 1.1),
-		center + Vector3(-span, LOOP_HEIGHT, CELL_SIZE * 1.1),
-		center + Vector3(-span, LOOP_HEIGHT, -CELL_SIZE * 1.1)
-	]
-	var start := loop_points.duplicate()
+	var start: Array = loop_points.duplicate()
+	var target: Array = []
+	for point in start:
+		var offset: Vector3 = point - center
+		target.append(center + Vector3(offset.x * 0.72, LOOP_HEIGHT, offset.z * 0.72))
+	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
+	if not target.is_empty():
+		target[0] = player_position
+		target[target.size() - 1] = player_position
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_method(_tween_loop.bind(start, target), 0.0, 1.0, 0.65)
@@ -345,8 +345,11 @@ func _pull_loop() -> void:
 
 func _tween_loop(progress: float, start: Array, target: Array) -> void:
 	loop_points.clear()
-	for i in range(start.size()):
-		loop_points.append(start[i].lerp(target[i], progress))
+	var point_count := mini(start.size(), target.size())
+	for i in range(point_count):
+		var start_point: Vector3 = start[i]
+		var target_point: Vector3 = target[i]
+		loop_points.append(start_point.lerp(target_point, progress))
 	_redraw_loop()
 
 func _remove_loop() -> void:
