@@ -47,9 +47,24 @@ static func tightened_loop(start: Array, player_position: Vector3, state: WorldS
 			candidate.append(_push_out_of_obstacles(current[i].lerp(center, step), state, cell_to_world, clearance))
 		if segments_clear(candidate, state, cell_to_world, clearance):
 			current = candidate
+			center = _loop_center(current)
 		else:
-			break
-		center = _loop_center(current)
+			# A straight radial move can cross a puncture even when the
+			# existing representative is legal. Keep that point in place
+			# and continue relaxing the other points; this is not a
+			# topological obstruction or a proof that the word is invalid.
+			var partial := current.duplicate()
+			var changed := false
+			for i in range(1, current.size() - 1):
+				var local_candidate := current.duplicate()
+				local_candidate[i] = _push_out_of_obstacles(current[i].lerp(center, step), state, cell_to_world, clearance)
+				if segments_clear(local_candidate, state, cell_to_world, clearance):
+					partial = local_candidate
+					changed = true
+			if not changed:
+				break
+			current = partial
+			center = _loop_center(current)
 	return current if segments_clear(current, state, cell_to_world, clearance) else []
 
 static func segments_clear(points: Array, state: WorldState, cell_to_world: Callable, clearance: float) -> bool:
