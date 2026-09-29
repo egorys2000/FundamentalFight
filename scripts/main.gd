@@ -201,9 +201,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mouse_motion := event as InputEventMouseMotion
 		_append_draw_point(mouse_motion.position)
 		return
-	if not event.is_pressed() or event.is_echo():
-		return
 	var key_event := event as InputEventKey
+	if key_event == null or not key_event.is_pressed() or key_event.is_echo():
+		return
 	if key_event != null and key_event.keycode == KEY_R:
 		_move_player(Vector2i.ZERO)
 		return
