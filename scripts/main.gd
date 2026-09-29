@@ -592,30 +592,27 @@ func _redraw_loop() -> void:
 	for child in loop_visual.get_children():
 		child.free()
 	for path in completed_loops:
-		_add_rope_visual(path)
+		_add_rope_visual(path, true)
 	if drawing_loop and draw_points.size() >= 2:
-		var preview := draw_points.duplicate()
-		if preview[preview.size() - 1].distance_to(draw_origin) > 0.01:
-			preview.append(draw_origin)
-		_add_rope_visual(preview)
+		_add_rope_visual(draw_points, false)
 
-func _add_rope_visual(path: Array) -> void:
-	if path.size() < 3:
+func _add_rope_visual(path: Array, closed: bool) -> void:
+	if path.size() < 2:
 		return
 	var closed_path: Array[Vector3] = []
 	for point in path:
 		closed_path.append(point)
-	if closed_path[0].distance_to(closed_path[closed_path.size() - 1]) > 0.01:
+	if closed and closed_path[0].distance_to(closed_path[closed_path.size() - 1]) > 0.01:
 		closed_path.append(closed_path[0])
 	var rope := MeshInstance3D.new()
 	rope.name = "RopeMesh"
-	rope.mesh = _build_rope_mesh(closed_path)
+	rope.mesh = _build_rope_mesh(closed_path, closed)
 	rope.material_override = loop_material
 	loop_visual.add_child(rope)
 
-func _build_rope_mesh(path: Array[Vector3]) -> ArrayMesh:
+func _build_rope_mesh(path: Array[Vector3], closed: bool) -> ArrayMesh:
 	var sides := 8
-	var rings := path.size() - 1
+	var rings := path.size() - 1 if closed else path.size()
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -624,8 +621,10 @@ func _build_rope_mesh(path: Array[Vector3]) -> ArrayMesh:
 	var radius := LOOP_WIDTH * (1.0 + energy_ratio * 0.35)
 	for ring_index in range(rings):
 		var point: Vector3 = path[ring_index]
-		var previous: Vector3 = path[(ring_index - 1 + rings) % rings]
-		var next: Vector3 = path[(ring_index + 1) % rings]
+		var previous_index := (ring_index - 1 + rings) % rings if closed else maxi(ring_index - 1, 0)
+		var next_index := (ring_index + 1) % rings if closed else mini(ring_index + 1, rings - 1)
+		var previous: Vector3 = path[previous_index]
+		var next: Vector3 = path[next_index]
 		var tangent := Vector2(next.x - previous.x, next.z - previous.z).normalized()
 		if tangent.length_squared() < 0.01:
 			tangent = Vector2.RIGHT
@@ -636,7 +635,8 @@ func _build_rope_mesh(path: Array[Vector3]) -> ArrayMesh:
 			vertices.append(point + radial * radius)
 			normals.append(radial)
 			uvs.append(Vector2(float(ring_index) / float(rings), float(side_index) / float(sides)))
-	for ring_index in range(rings):
+	var link_count := rings if closed else rings - 1
+	for ring_index in range(link_count):
 		var next_ring := (ring_index + 1) % rings
 		for side_index in range(sides):
 			var next_side := (side_index + 1) % sides
