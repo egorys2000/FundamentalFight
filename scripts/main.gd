@@ -160,7 +160,19 @@ func _build_environment() -> void:
 	foundation.material_override = foundation_material
 	foundation.position.y = GROUND_Y - 0.4
 	add_child(foundation)
+	var stand_material := StandardMaterial3D.new()
+	stand_material.albedo_color = Color("#213b3b")
+	stand_material.metallic = 0.28
+	stand_material.roughness = 0.64
+	var stand_mesh := BoxMesh.new()
+	stand_mesh.size = Vector3(GRID_SIZE * CELL_SIZE + 2.6, 0.42, GRID_SIZE * CELL_SIZE + 2.6)
+	var stand := MeshInstance3D.new()
+	stand.mesh = stand_mesh
+	stand.material_override = stand_material
+	stand.position.y = -1.08
+	add_child(stand)
 	_build_terrarium_frame()
+	_build_desk_and_lamps()
 
 	var limit := (GRID_SIZE - 1) / 2
 	for x in range(-limit, limit + 1):
@@ -172,13 +184,106 @@ func _build_environment() -> void:
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 29.5
+	camera.size = 36.0
 	camera.near = 0.01
 	camera.far = 100.0
 	camera.position = Vector3(14.0, 22.0, -18.0)
 	add_child(camera)
-	camera.look_at(Vector3(0.0, 0.0, 0.0), Vector3.UP)
+	camera.look_at(Vector3(0.0, 0.5, 0.0), Vector3.UP)
 	camera.current = true
+
+func _build_desk_and_lamps() -> void:
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color("#5a3028")
+	wood.roughness = 0.72
+	var wood_edge := StandardMaterial3D.new()
+	wood_edge.albedo_color = Color("#2b1719")
+	wood_edge.roughness = 0.82
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color("#a97545")
+	brass.metallic = 0.72
+	brass.roughness = 0.27
+	var desk_top := BoxMesh.new()
+	desk_top.size = Vector3(42.0, 0.72, 32.0)
+	var desk := MeshInstance3D.new()
+	desk.mesh = desk_top
+	desk.material_override = wood
+	desk.position = Vector3(0.0, -1.65, 0.0)
+	add_child(desk)
+	var desk_front := BoxMesh.new()
+	desk_front.size = Vector3(42.0, 0.16, 0.16)
+	for z in [-16.0, 16.0]:
+		var trim := MeshInstance3D.new()
+		trim.mesh = desk_front
+		trim.material_override = wood_edge
+		trim.position = Vector3(0.0, -1.25, z)
+		add_child(trim)
+	var desk_leg_mesh := BoxMesh.new()
+	desk_leg_mesh.size = Vector3(1.1, 4.0, 1.1)
+	for x in [-18.0, 18.0]:
+		for z in [-12.0, 12.0]:
+			var leg := MeshInstance3D.new()
+			leg.mesh = desk_leg_mesh
+			leg.material_override = wood_edge
+			leg.position = Vector3(x, -3.8, z)
+			add_child(leg)
+	_add_desk_lamp(Vector3(-20.0, -1.77, -11.0), Color("#f3b15f"), Color("#e37c45"))
+	_add_desk_lamp(Vector3(20.0, -1.77, 11.0), Color("#8bd6ca"), Color("#3a928e"))
+
+func _add_desk_lamp(origin: Vector3, bulb_color: Color, shade_color: Color) -> void:
+	var stem_material := StandardMaterial3D.new()
+	stem_material.albedo_color = Color("#302127")
+	stem_material.metallic = 0.65
+	stem_material.roughness = 0.28
+	var shade_material := StandardMaterial3D.new()
+	shade_material.albedo_color = shade_color
+	shade_material.roughness = 0.54
+	var bulb_material := StandardMaterial3D.new()
+	bulb_material.albedo_color = bulb_color
+	bulb_material.emission_enabled = true
+	bulb_material.emission = bulb_color
+	bulb_material.emission_energy_multiplier = 2.2
+	var base_mesh := CylinderMesh.new()
+	base_mesh.top_radius = 1.0
+	base_mesh.bottom_radius = 1.15
+	base_mesh.height = 0.22
+	base_mesh.radial_segments = 8
+	var base := MeshInstance3D.new()
+	base.mesh = base_mesh
+	base.material_override = stem_material
+	base.position = origin + Vector3(0.0, 0.48, 0.0)
+	add_child(base)
+	var stem_mesh := BoxMesh.new()
+	stem_mesh.size = Vector3(0.16, 2.1, 0.16)
+	var stem := MeshInstance3D.new()
+	stem.mesh = stem_mesh
+	stem.material_override = stem_material
+	stem.position = origin + Vector3(0.0, 1.62, 0.0)
+	add_child(stem)
+	var shade_mesh := CylinderMesh.new()
+	shade_mesh.top_radius = 0.58
+	shade_mesh.bottom_radius = 0.95
+	shade_mesh.height = 0.52
+	shade_mesh.radial_segments = 8
+	var shade := MeshInstance3D.new()
+	shade.mesh = shade_mesh
+	shade.material_override = shade_material
+	shade.position = origin + Vector3(0.0, 2.82, 0.0)
+	add_child(shade)
+	var bulb_mesh := SphereMesh.new()
+	bulb_mesh.radius = 0.24
+	bulb_mesh.height = 0.48
+	var bulb := MeshInstance3D.new()
+	bulb.mesh = bulb_mesh
+	bulb.material_override = bulb_material
+	bulb.position = origin + Vector3(0.0, 2.62, 0.0)
+	add_child(bulb)
+	var lamp_light := OmniLight3D.new()
+	lamp_light.position = origin + Vector3(0.0, 2.5, 0.0)
+	lamp_light.omni_range = 9.0
+	lamp_light.light_energy = 1.25
+	lamp_light.light_color = bulb_color
+	add_child(lamp_light)
 
 func _build_terrarium_frame() -> void:
 	var frame_material := StandardMaterial3D.new()
