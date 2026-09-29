@@ -190,9 +190,9 @@ func _build_environment() -> void:
 	camera.size = 35.0
 	camera.near = 0.01
 	camera.far = 100.0
-	camera.position = Vector3(18.0, 15.0, -24.0)
+	camera.position = Vector3(14.0, 22.0, -18.0)
 	add_child(camera)
-	camera.look_at(Vector3(0.0, -0.35, 0.0), Vector3.UP)
+	camera.look_at(Vector3(0.0, 0.5, 0.0), Vector3.UP)
 	camera.current = true
 
 func _build_desk_and_lamps() -> void:
