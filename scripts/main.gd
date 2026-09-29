@@ -4,7 +4,7 @@ const GRID_SIZE := 11
 const CELL_SIZE := 1.6
 const GROUND_Y := -0.42
 const LOOP_HEIGHT := 0.16
-const LOOP_WIDTH := 0.09
+const LOOP_WIDTH := 0.09`nconst OBSTACLE_CLEARANCE := 0.92`nconst OBSTACLE_BOUNDARY_SAMPLES := 12
 
 const GROUND_TILE := preload("res://assets/generated/ground_tile.glb")
 const GROUND_TILE_GRASS := preload("res://assets/generated/ground_tile_grass.glb")
@@ -325,8 +325,9 @@ func _pull_loop() -> void:
 	var start: Array = loop_points.duplicate()
 	var player_position := _cell_to_world(player_cell) + Vector3(0.0, LOOP_HEIGHT, 0.0)
 	var target := _build_convex_hull_loop(start.size(), player_position)
-	if target.size() != start.size():
+	if target.size() != start.size() or not _loop_segments_clear(target):
 		loop_pulled = false
+		status_label.text = "Pull blocked: the tightened loop would cross an obstacle"
 		return
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
@@ -338,15 +339,12 @@ func _build_convex_hull_loop(point_count: int, player_position: Vector3) -> Arra
 	for cell in occupied:
 		var obstacle := _cell_to_world(cell)
 		if _point_inside_loop(obstacle):
-			anchors.append(Vector2(obstacle.x, obstacle.z))
+			var obstacle_center := Vector2(obstacle.x, obstacle.z)
+			for sample_index in range(OBSTACLE_BOUNDARY_SAMPLES):
+				var angle := TAU * float(sample_index) / float(OBSTACLE_BOUNDARY_SAMPLES)
+				anchors.append(obstacle_center + Vector2(cos(angle), sin(angle)) * OBSTACLE_CLEARANCE)
 	if anchors.size() < 2:
 		return []
-	if anchors.size() == 2:
-		var direction := anchors[1] - anchors[0]
-		var perpendicular := Vector2(-direction.y, direction.x).normalized() * CELL_SIZE
-		var midpoint := (anchors[0] + anchors[1]) * 0.5
-		anchors.append(midpoint + perpendicular)
-		anchors.append(midpoint - perpendicular)
 	var hull := _convex_hull(anchors)
 	if hull.size() < 2:
 		return []
@@ -371,6 +369,31 @@ func _build_convex_hull_loop(point_count: int, player_position: Vector3) -> Arra
 	result[0] = player_position
 	result.append(player_position)
 	return result
+
+func _loop_segments_clear(points: Array) -> bool:
+	if points.size() < 2:
+		return false
+	for i in range(points.size() - 1):
+		var start: Vector3 = points[i]
+		var end: Vector3 = points[i + 1]
+		for cell in occupied:
+			var obstacle := _cell_to_world(cell)
+			if _segment_hits_obstacle(start, end, obstacle):
+				return false
+	return true
+
+func _segment_hits_obstacle(start: Vector3, end: Vector3, obstacle: Vector3) -> bool:
+	var segment := Vector2(end.x - start.x, end.z - start.z)
+	var segment_length_squared := segment.length_squared()
+	var projection := 0.0
+	if segment_length_squared > 0.0001:
+		projection = clampf(
+			Vector2(obstacle.x - start.x, obstacle.z - start.z).dot(segment) / segment_length_squared,
+			0.0,
+			1.0
+		)
+	var nearest := Vector2(start.x, start.z) + segment * projection
+	return nearest.distance_to(Vector2(obstacle.x, obstacle.z)) < OBSTACLE_CLEARANCE
 
 func _convex_hull(points: Array[Vector2]) -> Array[Vector2]:
 	var sorted := points.duplicate()
@@ -422,13 +445,15 @@ func _sample_polygon(polygon: Array[Vector2], normalized_distance: float) -> Vec
 	return polygon[0]
 
 func _tween_loop(progress: float, start: Array, target: Array) -> void:
-	loop_points.clear()
 	var point_count := mini(start.size(), target.size())
+	var candidate: Array[Vector3] = []
 	for i in range(point_count):
 		var start_point: Vector3 = start[i]
 		var target_point: Vector3 = target[i]
-		loop_points.append(start_point.lerp(target_point, progress))
-	_redraw_loop()
+		candidate.append(start_point.lerp(target_point, progress))
+	if _loop_segments_clear(candidate):
+		loop_points = candidate
+		_redraw_loop()
 
 func _remove_loop() -> void:
 	loop_points.clear()
